@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Zonas de Precio</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { box-sizing: border-box; margin: 0; }
+        body { font-family: system-ui, -apple-system, sans-serif; display: flex; height: 100vh; }
+
+        #sidebar {
+            width: 420px; min-width: 420px; background: #0f172a; color: #e2e8f0;
+            display: flex; flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            padding: 16px 20px; background: #1e293b;
+            border-bottom: 1px solid #334155;
+        }
+        .header h1 { font-size: 17px; font-weight: 700; color: #f8fafc; }
+        .header p { font-size: 12px; color: #64748b; margin-top: 2px; }
+
+        /* Search */
+        .search { padding: 14px 20px; background: #1e293b; border-bottom: 1px solid #334155; }
+        .search input {
+            width: 100%; padding: 10px 14px; border: 1px solid #334155; border-radius: 8px;
+            background: #0f172a; color: #e2e8f0; font-size: 14px; outline: none;
+            transition: border-color .2s;
+        }
+        .search input:focus { border-color: #3b82f6; }
+        .search input::placeholder { color: #475569; }
+
+        /* Result */
+        #result {
+            padding: 14px 20px; background: #1e293b; border-bottom: 1px solid #334155;
+            min-height: 44px; font-size: 13px; color: #94a3b8;
+            transition: all .3s;
+        }
+        #result.found { background: #172554; }
+        .result-address { color: #94a3b8; font-size: 12px; margin-bottom: 6px; }
+        .result-main { display: flex; align-items: center; gap: 12px; }
+        .result-zona-badge {
+            padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 13px;
+        }
+        .result-dist { color: #64748b; font-size: 12px; }
+        .result-precio { font-size: 22px; font-weight: 800; margin-top: 6px; }
+
+        /* Centro */
+        .centro-info {
+            padding: 10px 20px; font-size: 11px; color: #475569;
+            border-bottom: 1px solid #1e293b;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .centro-info span { color: #64748b; }
+
+        /* Tabla de precios */
+        .tabla-container { flex: 1; overflow-y: auto; padding: 0; }
+
+        table {
+            width: 100%; border-collapse: collapse; font-size: 13px;
+        }
+        thead th {
+            position: sticky; top: 0; background: #1e293b; color: #64748b;
+            padding: 10px 8px; text-align: right; font-weight: 600; font-size: 11px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            border-bottom: 2px solid #334155;
+        }
+        thead th:first-child { text-align: left; padding-left: 20px; }
+
+        tbody tr {
+            border-bottom: 1px solid #1e293b; transition: background .2s;
+        }
+        tbody tr:hover { background: #1e293b; }
+        tbody tr.active {
+            background: #172554; outline: 2px solid #3b82f6; outline-offset: -2px;
+        }
+
+        td { padding: 10px 8px; text-align: right; }
+        td:first-child { text-align: left; padding-left: 20px; }
+
+        .zona-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-weight: 700; font-size: 13px;
+        }
+        .zona-dot {
+            width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+        }
+        .zona-radio { color: #475569; font-weight: 400; font-size: 11px; }
+        .zona-incremento { color: #475569; font-size: 10px; }
+
+        td.precio { font-variant-numeric: tabular-nums; font-weight: 500; }
+        td.precio-header { color: #94a3b8; }
+
+        /* Footer */
+        .footer {
+            padding: 10px 20px; background: #1e293b; border-top: 1px solid #334155;
+            font-size: 11px; color: #475569; text-align: center;
+        }
+
+        #map { flex: 1; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div class="header">
+            <h1>Zonas de Servicio</h1>
+            <p>Precios por zona con incremento del 15%</p>
+        </div>
+
+        <div class="search">
+            <input type="text" id="address" placeholder="Ingresa una direccion..." />
+        </div>
+
+        <div id="result">Busca una direccion para ver zona y precio</div>
+
+        <div class="centro-info">
+            <span>Centro: Caballito</span>
+            <span id="centro-coords"></span>
+        </div>
+
+        <div class="tabla-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Zona</th>
+                        <th>Plagas</th>
+                        <th>Roedores</th>
+                        <th>ULV</th>
+                        <th>Termo</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-body"></tbody>
+            </table>
+        </div>
+
+        <div class="footer">
+            Arrastra el marcador en el mapa para mover el centro
+        </div>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+    const COLORES = ["#22c55e","#eab308","#f97316","#ef4444","#a855f7","#ec4899","#6366f1","#14b8a6"];
+    const INCREMENTO = 0.15;
+    const SERVICIOS = [
+        { key: "plagas",   base: 40000 },
+        { key: "roedores", base: 50000 },
+        { key: "ulv",      base: 60000 },
+        { key: "termo",    base: 120000 },
+    ];
+
+    let centro = { lat: -34.6186, lng: -58.4326 };
+    let zonas = [
+        { nombre: "Zona 1", radio_km: 5 },
+        { nombre: "Zona 2", radio_km: 15 },
+        { nombre: "Zona 3", radio_km: 30 },
+        { nombre: "Zona 4", radio_km: 50 },
+        { nombre: "Zona 5", radio_km: 75 },
+    ];
+
+    function precioZona(servicioBase, zonaIdx) {
+        return Math.round(servicioBase * Math.pow(1 + INCREMENTO, zonaIdx));
+    }
+
+    function formatPrecio(n) {
+        return '$' + n.toLocaleString('es-AR');
+    }
+
+    // --- Mapa ---
+    const map = L.map('map').setView([centro.lat, centro.lng], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    const centroMarker = L.marker([centro.lat, centro.lng], { draggable: true }).addTo(map);
+    centroMarker.on('dragend', () => {
+        const pos = centroMarker.getLatLng();
+        centro.lat = pos.lat; centro.lng = pos.lng;
+        updateCentroLabel();
+        dibujarCirculos();
+    });
+
+    let circuloLayers = [];
+    let searchMarker = null;
+
+    function distKm(lat1, lng1, lat2, lng2) {
+        const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function buscarZona(lat, lng) {
+        const dist = distKm(lat, lng, centro.lat, centro.lng);
+        for (let i = 0; i < zonas.length; i++) {
+            if (dist <= zonas[i].radio_km) return { zona: zonas[i], dist, idx: i };
+        }
+        return { zona: null, dist, idx: -1 };
+    }
+
+    function dibujarCirculos() {
+        circuloLayers.forEach(l => map.removeLayer(l));
+        circuloLayers = [];
+        for (let i = zonas.length - 1; i >= 0; i--) {
+            const color = COLORES[i % COLORES.length];
+            const c = L.circle([centro.lat, centro.lng], {
+                radius: zonas[i].radio_km * 1000,
+                color, fillColor: color, fillOpacity: 0.08, weight: 2,
+            }).addTo(map);
+
+            const preciosText = SERVICIOS.map(s =>
+                `${s.key}: ${formatPrecio(precioZona(s.base, i))}`
+            ).join('<br>');
+            c.bindTooltip(`<b>${zonas[i].nombre}</b> (${zonas[i].radio_km} km)<br>${preciosText}`, { sticky: true });
+
+            circuloLayers.push(c);
+        }
+    }
+
+    // --- Tabla ---
+    function renderTabla(activeIdx) {
+        const tbody = document.getElementById('tabla-body');
+        tbody.innerHTML = '';
+        zonas.forEach((z, i) => {
+            const color = COLORES[i % COLORES.length];
+            const tr = document.createElement('tr');
+            if (i === activeIdx) tr.className = 'active';
+
+            const inc = i === 0 ? 'BASE' : `+${i * 15}%`;
+            const prevRadio = i === 0 ? 0 : zonas[i-1].radio_km;
+
+            tr.innerHTML = `
+                <td>
+                    <div class="zona-badge">
+                        <span class="zona-dot" style="background:${color}"></span>
+                        ${z.nombre}
+                    </div>
+                    <div class="zona-radio">${prevRadio}–${z.radio_km} km · <span class="zona-incremento">${inc}</span></div>
+                </td>
+                ${SERVICIOS.map(s => `
+                    <td class="precio" style="color:${color}">${formatPrecio(precioZona(s.base, i))}</td>
+                `).join('')}
+            `;
+
+            tr.addEventListener('click', () => {
+                map.setView([centro.lat, centro.lng], i < 2 ? 12 : i < 4 ? 10 : 9);
+            });
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function updateCentroLabel() {
+        document.getElementById('centro-coords').textContent =
+            `${centro.lat.toFixed(4)}, ${centro.lng.toFixed(4)}`;
+    }
+
+    // --- Buscar direccion ---
+    document.getElementById('address').addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter') return;
+        const q = e.target.value.trim();
+        if (!q) return;
+
+        const resultDiv = document.getElementById('result');
+        resultDiv.className = '';
+        resultDiv.innerHTML = 'Buscando...';
+
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+            const data = await res.json();
+            if (data.length === 0) { resultDiv.innerHTML = 'No se encontro la direccion'; return; }
+
+            const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+            const display = data[0].display_name.split(',').slice(0, 3).join(',');
+
+            if (searchMarker) map.removeLayer(searchMarker);
+            const { zona, dist, idx } = buscarZona(lat, lng);
+            const color = zona ? COLORES[idx % COLORES.length] : '#666';
+
+            searchMarker = L.marker([lat, lng]).addTo(map);
+            map.setView([lat, lng], 12);
+
+            if (zona) {
+                resultDiv.className = 'found';
+                const precioText = SERVICIOS.map(s =>
+                    `${s.key}: ${formatPrecio(precioZona(s.base, idx))}`
+                ).join(' · ');
+                resultDiv.innerHTML = `
+                    <div class="result-address">${display}</div>
+                    <div class="result-main">
+                        <span class="result-zona-badge" style="background:${color}30;color:${color}">
+                            ${zona.nombre}
+                        </span>
+                        <span class="result-dist">${dist.toFixed(1)} km del centro</span>
+                    </div>
+                    <div style="margin-top:8px;font-size:12px;color:#94a3b8">${precioText}</div>
+                `;
+                searchMarker.bindPopup(`<b>${display}</b><br>${zona.nombre} — ${dist.toFixed(1)} km`).openPopup();
+            } else {
+                resultDiv.innerHTML = `
+                    <div class="result-address">${display}</div>
+                    <div style="color:#ef4444;font-weight:700;margin-top:4px">
+                        Fuera de cobertura (${dist.toFixed(1)} km)
+                    </div>
+                `;
+                searchMarker.bindPopup(`<b>${display}</b><br>Fuera de cobertura`).openPopup();
+            }
+
+            renderTabla(idx);
+        } catch (err) {
+            resultDiv.innerHTML = 'Error: ' + err.message;
+        }
+    });
+
+    // Init
+    updateCentroLabel();
+    dibujarCirculos();
+    renderTabla(-1);
+    </script>
+</body>
+</html>
