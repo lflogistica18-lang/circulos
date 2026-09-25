@@ -15,3 +15,6 @@ npm-debug.log*
 
 # Otros
 node_modules/
+
+# Metadatos de Windows al descargar archivos
+*:Zone.Identifier

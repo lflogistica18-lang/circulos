@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Zonas - Editor de Polígonos</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+    <style>
+        * { box-sizing: border-box; margin: 0; }
+        body { font-family: system-ui, -apple-system, sans-serif; display: flex; height: 100vh; }
+
+        #sidebar {
+            width: 420px; min-width: 420px; background: #0f172a; color: #e2e8f0;
+            display: flex; flex-direction: column;
+        }
+
+        .header {
+            padding: 16px 20px; background: #1e293b;
+            border-bottom: 1px solid #334155;
+        }
+        .header h1 { font-size: 17px; font-weight: 700; color: #f8fafc; }
+        .header p { font-size: 12px; color: #64748b; margin-top: 2px; }
+
+        .actions {
+            padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155;
+            display: flex; gap: 8px;
+        }
+        .actions button {
+            flex: 1; padding: 8px 12px; background: #334155; color: #e2e8f0;
+            border: none; border-radius: 6px; cursor: pointer; font-size: 12px;
+            font-weight: 600; transition: all .2s;
+        }
+        .actions button:hover { background: #475569; }
+        .actions button.primary { background: #3b82f6; }
+        .actions button.primary:hover { background: #2563eb; }
+
+        .search { padding: 14px 20px; background: #1e293b; border-bottom: 1px solid #334155; }
+        .search input {
+            width: 100%; padding: 10px 14px; border: 1px solid #334155; border-radius: 8px;
+            background: #0f172a; color: #e2e8f0; font-size: 14px; outline: none;
+            transition: border-color .2s;
+        }
+        .search input:focus { border-color: #3b82f6; }
+        .search input::placeholder { color: #475569; }
+
+        #result {
+            padding: 14px 20px; background: #1e293b; border-bottom: 1px solid #334155;
+            min-height: 60px; font-size: 13px; color: #94a3b8;
+        }
+        #result.found { background: #172554; }
+        .result-address { color: #94a3b8; font-size: 12px; margin-bottom: 6px; }
+        .result-zona { font-weight: 700; font-size: 15px; margin-top: 4px; }
+        .result-precios { margin-top: 8px; font-size: 12px; color: #94a3b8; }
+        .result-precio-item { margin-top: 4px; }
+
+        .zonas-container { flex: 1; overflow-y: auto; }
+        .zona-card {
+            margin: 12px; padding: 14px; background: #1e293b; border-radius: 8px;
+            border: 2px solid transparent; transition: all .2s;
+            cursor: pointer;
+        }
+        .zona-card:hover { border-color: #334155; }
+        .zona-card.active { border-color: #3b82f6; background: #172554; }
+
+        .zona-header {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+        }
+        .zona-color {
+            width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+            border: 2px solid rgba(255,255,255,0.3);
+        }
+        .zona-nombre {
+            flex: 1; background: none; border: none; color: #e2e8f0;
+            font-size: 14px; font-weight: 600; padding: 4px 8px;
+            border-radius: 4px; transition: background .2s;
+        }
+        .zona-nombre:hover { background: #0f172a; }
+        .zona-delete {
+            background: none; border: none; color: #64748b; cursor: pointer;
+            font-size: 18px; padding: 4px 8px; border-radius: 4px;
+            transition: all .2s;
+        }
+        .zona-delete:hover { background: #ef4444; color: white; }
+
+        .zona-precios { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .precio-input {
+            display: flex; flex-direction: column; gap: 2px;
+        }
+        .precio-input label {
+            font-size: 10px; color: #64748b; text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .precio-input input {
+            padding: 6px 8px; background: #0f172a; border: 1px solid #334155;
+            border-radius: 4px; color: #e2e8f0; font-size: 13px;
+            outline: none; transition: border-color .2s;
+        }
+        .precio-input input:focus { border-color: #3b82f6; }
+
+        .help-box {
+            padding: 12px 20px; background: #1e293b; border-top: 1px solid #334155;
+            font-size: 11px; color: #64748b; line-height: 1.6;
+        }
+        .help-box strong { color: #94a3b8; }
+
+        #map { flex: 1; }
+
+        /* Modal */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8); z-index: 10000; align-items: center; justify-content: center;
+        }
+        .modal.show { display: flex; }
+        .modal-content {
+            background: #1e293b; padding: 24px; border-radius: 12px; max-width: 600px;
+            width: 90%; max-height: 80vh; overflow-y: auto;
+        }
+        .modal-content h2 { color: #f8fafc; margin-bottom: 16px; font-size: 18px; }
+        .modal-content textarea {
+            width: 100%; min-height: 300px; background: #0f172a; color: #e2e8f0;
+            border: 1px solid #334155; border-radius: 6px; padding: 12px;
+            font-family: 'Courier New', monospace; font-size: 12px; resize: vertical;
+        }
+        .modal-actions {
+            margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end;
+        }
+        .modal-actions button {
+            padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;
+            font-size: 13px; font-weight: 600; transition: all .2s;
+        }
+        .modal-actions .btn-cancel { background: #334155; color: #e2e8f0; }
+        .modal-actions .btn-cancel:hover { background: #475569; }
+        .modal-actions .btn-primary { background: #3b82f6; color: white; }
+        .modal-actions .btn-primary:hover { background: #2563eb; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div class="header">
+            <h1>Editor de Zonas (Polígonos)</h1>
+            <p>Dibuja zonas custom en el mapa</p>
+        </div>
+
+        <div class="actions">
+            <button onclick="exportarZonas()">📥 Exportar</button>
+            <button onclick="mostrarImportar()">📤 Importar</button>
+            <button class="primary" onclick="copiarFuncion()">⚡ Ver Función</button>
+        </div>
+
+        <div class="search">
+            <input type="text" id="address" placeholder="Buscar dirección..." />
+        </div>
+
+        <div id="result">Usa las herramientas del mapa para dibujar zonas</div>
+
+        <div class="zonas-container" id="zonas-list"></div>
+
+        <div class="help-box" id="panel-padron" style="text-align:left">
+            <strong>Calibración contra las 149 localidades</strong><br>
+            <div style="display:flex;gap:6px;margin:8px 0">
+              <button onclick="geocodificar()" id="btnGeo" style="flex:1">Geocodificar</button>
+              <button onclick="pararGeo()" id="btnStop" disabled>Detener</button>
+            </div>
+            <div style="border:1px solid #ef4444;border-radius:6px;padding:8px;margin-bottom:8px">
+              <strong style="font-size:12px">Paso 1 — Empezar de cero</strong>
+              <button onclick="borrarTodo()" style="width:100%;margin-top:6px;background:#7f1d1d">Borrar todas las zonas del mapa</button>
+              <div style="font-size:11px;color:#94a3b8;margin-top:6px">Borra los dibujos nada más. No se pierden las localidades geocodificadas ni los precios.</div>
+            </div>
+
+            <div style="border:1px solid #334155;border-radius:6px;padding:8px;margin-bottom:8px">
+              <strong style="font-size:12px">Paso 2 — Dibujar CABA (0%)</strong>
+              <button onclick="dibujarCABA()" style="width:100%;margin-top:6px">Dibujar CABA a mano</button>
+              <div id="caba-stat" style="font-size:11px;color:#94a3b8;margin-top:6px"></div>
+            </div>
+
+            <div style="border:1px solid #334155;border-radius:6px;padding:8px;margin-bottom:8px">
+              <strong style="font-size:12px">Paso 3 — Los 4 círculos, radios en km</strong>
+              <div id="radios" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0"></div>
+              <div style="display:flex;gap:6px">
+                <button onclick="aplicarCirculos()" style="flex:1">Aplicar</button>
+                <button onclick="optimizarRadios()" style="flex:1">Buscar mejores radios</button>
+              </div>
+              <div style="font-size:11px;color:#94a3b8;margin-top:6px">El centro es el punto negro del mapa: arrastralo para moverlo.</div>
+            </div>
+            <button class="primary" style="width:100%;margin-bottom:6px" onclick="sugerirPoligonos()">Dibujar las 4 zonas automáticamente (contorno)</button>
+            <div style="display:flex;gap:6px;margin-bottom:8px">
+              <button onclick="reubicar()" style="flex:1">Reubicar mal ubicadas</button>
+              <button onclick="verPuntos()" style="flex:1">Ver puntos</button>
+            </div>
+            <div id="padron-stat" style="font-size:12px;line-height:1.7"></div>
+            <div id="padron-mal" style="font-size:11px;max-height:150px;overflow:auto;margin-top:6px"></div>
+            <button class="primary" style="width:100%;margin-bottom:6px" onclick="reprocesarOSM()">Recalcular localidades</button>
+            <button style="width:100%;margin-bottom:6px;font-size:11px" onclick="soloCuradas()">Usar solo la lista curada</button>
+            <button style="width:100%;margin-bottom:6px;font-size:11px" onclick="traerLocalidades()" id="btnOSM">Sumar más desde OpenStreetMap (opcional)</button>
+            <div id="osm-stat" style="font-size:12px;color:#94a3b8;margin-bottom:8px"></div>
+            <button class="primary" style="width:100%;margin-top:10px" onclick="exportarDocs()">Exportar ZONAS.md + PRECIOS.md</button>
+        </div>
+
+        <div class="help-box">
+            <strong>Herramientas:</strong><br>
+            🔷 Dibujar polígono → Click para vértices, doble click para cerrar<br>
+            ✏️ Editar → Arrastra vértices<br>
+            🗑️ Borrar → Click en zona y "Delete"
+        </div>
+    </div>
+    <div id="map"></div>
+    <div id="fatal" style="display:none;position:fixed;inset:0;z-index:9999;background:#0f172a;color:#e2e8f0;padding:40px;font:14px/1.6 ui-sans-serif,system-ui,sans-serif;overflow:auto">
+      <h2 style="color:#f87171;margin:0 0 12px">La herramienta no pudo arrancar</h2>
+      <p id="fatal-msg" style="font:13px ui-monospace,monospace;background:#1e293b;padding:12px;border-radius:6px;white-space:pre-wrap"></p>
+      <p id="fatal-hint" style="color:#94a3b8"></p>
+    </div>
+
+    <!-- Modal Export -->
+    <div id="modal-export" class="modal">
+        <div class="modal-content">
+            <h2>📥 Exportar Zonas (JSON)</h2>
+            <textarea id="export-json" readonly></textarea>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="cerrarModal('modal-export')">Cerrar</button>
+                <button class="btn-primary" onclick="copiarExport()">Copiar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Import -->
+    <div id="modal-import" class="modal">
+        <div class="modal-content">
+            <h2>📤 Importar Zonas (JSON)</h2>
+            <textarea id="import-json" placeholder="Pega aqui el JSON exportado..."></textarea>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="cerrarModal('modal-import')">Cancelar</button>
+                <button class="btn-primary" onclick="importarZonas()">Importar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Funcion -->
+    <div id="modal-funcion" class="modal">
+        <div class="modal-content">
+            <h2>⚡ Función para usar en tu código</h2>
+            <textarea id="funcion-code" readonly></textarea>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="cerrarModal('modal-funcion')">Cerrar</button>
+                <button class="btn-primary" onclick="copiarFuncion2()">Copiar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    <script>
+// Padron de localidades — generado desde PRECIOS-ZONAS.md (149 unicas)
+// km = distancia historica conocida, se usa para validar el geocoding
+const PADRON = [{"n": "Avellaneda Centro","p": "Avellaneda","km": 8,"z": "Cercano"},{"n": "Crucecita","p": "Avellaneda","km": 8,"z": "Cercano"},{"n": "Piñeyro","p": "Avellaneda","km": 9,"z": "Cercano"},{"n": "Dock Sud","p": "Avellaneda","km": 10,"z": "Cercano"},{"n": "Gerli","p": "Avellaneda","km": 10,"z": "Cercano"},{"n": "Sarandí","p": "Avellaneda","km": 12,"z": "Cercano"},{"n": "Villa Domínico","p": "Avellaneda","km": 14,"z": "Cercano"},{"n": "Wilde","p": "Avellaneda","km": 16,"z": "Cercano"},{"n": "Lomas del Mirador","p": "La Matanza","km": 16,"z": "Cercano"},{"n": "Ramos Mejía","p": "La Matanza","km": 18,"z": "Cercano"},{"n": "Villa Madero","p": "La Matanza","km": 18,"z": "Cercano"},{"n": "Tablada","p": "La Matanza","km": 19,"z": "Cercano"},{"n": "Valentín Alsina","p": "Lanús","km": 12,"z": "Cercano"},{"n": "Lanús Oeste","p": "Lanús","km": 14,"z": "Cercano"},{"n": "Lanús Este","p": "Lanús","km": 15,"z": "Cercano"},{"n": "Remedios de Escalada","p": "Lanús","km": 17,"z": "Cercano"},{"n": "Monte Chingolo","p": "Lanús","km": 18,"z": "Cercano"},{"n": "Villa Fiorito","p": "Lomas de Zamora","km": 15,"z": "Cercano"},{"n": "Banfield","p": "Lomas de Zamora","km": 18,"z": "Cercano"},{"n": "Bernal","p": "Quilmes","km": 18,"z": "Cercano"},{"n": "Don Bosco","p": "Quilmes","km": 19,"z": "Cercano"},{"n": "Martínez","p": "San Isidro","km": 18,"z": "Cercano"},{"n": "Villa Maipú","p": "San Martín","km": 15,"z": "Cercano"},{"n": "San Martín Centro","p": "San Martín","km": 18,"z": "Cercano"},{"n": "Ciudadela","p": "Tres de Febrero","km": 14,"z": "Cercano"},{"n": "Sáenz Peña","p": "Tres de Febrero","km": 16,"z": "Cercano"},{"n": "Santos Lugares","p": "Tres de Febrero","km": 18,"z": "Cercano"},{"n": "Villa Martelli","p": "Vicente López","km": 12,"z": "Cercano"},{"n": "Florida","p": "Vicente López","km": 14,"z": "Cercano"},{"n": "Olivos","p": "Vicente López","km": 15,"z": "Cercano"},{"n": "Vicente López","p": "Vicente López","km": 15,"z": "Cercano"},{"n": "Munro","p": "Vicente López","km": 16,"z": "Cercano"},{"n": "La Lucila","p": "Vicente López","km": 17,"z": "Cercano"},{"n": "Carapachay","p": "Vicente López","km": 18,"z": "Cercano"},{"n": "José Mármol","p": "Almirante Brown","km": 24,"z": "Media Distancia"},{"n": "Aldo Bonzi","p": "La Matanza","km": 20,"z": "Media Distancia"},{"n": "Villa Luzuriaga","p": "La Matanza","km": 20,"z": "Media Distancia"},{"n": "San Justo","p": "La Matanza","km": 22,"z": "Media Distancia"},{"n": "Ingeniero Budge","p": "Lomas de Zamora","km": 20,"z": "Media Distancia"},{"n": "Lomas de Zamora Centro","p": "Lomas de Zamora","km": 20,"z": "Media Distancia"},{"n": "Temperley","p": "Lomas de Zamora","km": 22,"z": "Media Distancia"},{"n": "Turdera","p": "Lomas de Zamora","km": 24,"z": "Media Distancia"},{"n": "Villa Sarmiento","p": "Morón","km": 20,"z": "Media Distancia"},{"n": "Haedo","p": "Morón","km": 22,"z": "Media Distancia"},{"n": "El Palomar","p": "Morón","km": 24,"z": "Media Distancia"},{"n": "Quilmes Centro","p": "Quilmes","km": 22,"z": "Media Distancia"},{"n": "Quilmes Oeste","p": "Quilmes","km": 24,"z": "Media Distancia"},{"n": "Acassuso","p": "San Isidro","km": 20,"z": "Media Distancia"},{"n": "San Isidro Centro","p": "San Isidro","km": 22,"z": "Media Distancia"},{"n": "Villa Adelina","p": "San Isidro","km": 22,"z": "Media Distancia"},{"n": "Beccar","p": "San Isidro","km": 24,"z": "Media Distancia"},{"n": "San Andrés","p": "San Martín","km": 20,"z": "Media Distancia"},{"n": "Villa Ballester","p": "San Martín","km": 22,"z": "Media Distancia"},{"n": "Caseros","p": "Tres de Febrero","km": 20,"z": "Media Distancia"},{"n": "Villa Bosch","p": "Tres de Febrero","km": 22,"z": "Media Distancia"},{"n": "Martín Coronado","p": "Tres de Febrero","km": 24,"z": "Media Distancia"},{"n": "Adrogué","p": "Almirante Brown","km": 25,"z": "Lejano"},{"n": "Rafael Calzada","p": "Almirante Brown","km": 26,"z": "Lejano"},{"n": "Claypole","p": "Almirante Brown","km": 28,"z": "Lejano"},{"n": "Burzaco","p": "Almirante Brown","km": 30,"z": "Lejano"},{"n": "Longchamps","p": "Almirante Brown","km": 35,"z": "Lejano"},{"n": "Glew","p": "Almirante Brown","km": 40,"z": "Lejano"},{"n": "Berazategui Centro","p": "Berazategui","km": 30,"z": "Lejano"},{"n": "Ranelagh","p": "Berazategui","km": 32,"z": "Lejano"},{"n": "Plátanos","p": "Berazategui","km": 34,"z": "Lejano"},{"n": "Gutiérrez","p": "Berazategui","km": 38,"z": "Lejano"},{"n": "Hudson","p": "Berazategui","km": 38,"z": "Lejano"},{"n": "Abril","p": "Esteban Echeverría","km": 28,"z": "Lejano"},{"n": "Luis Guillón","p": "Esteban Echeverría","km": 28,"z": "Lejano"},{"n": "Monte Grande","p": "Esteban Echeverría","km": 32,"z": "Lejano"},{"n": "El Jagüel","p": "Esteban Echeverría","km": 35,"z": "Lejano"},{"n": "Canning","p": "Esteban Echeverría","km": 38,"z": "Lejano"},{"n": "Aeropuerto Ezeiza","p": "Ezeiza","km": 32,"z": "Lejano"},{"n": "Ezeiza Centro","p": "Ezeiza","km": 35,"z": "Lejano"},{"n": "Florencio Varela Centro","p": "Florencio Varela","km": 35,"z": "Lejano"},{"n": "Bosques","p": "Florencio Varela","km": 38,"z": "Lejano"},{"n": "Villa Tesei","p": "Hurlingham","km": 28,"z": "Lejano"},{"n": "Hurlingham","p": "Hurlingham","km": 30,"z": "Lejano"},{"n": "William Morris","p": "Hurlingham","km": 32,"z": "Lejano"},{"n": "Parque Leloir","p": "Ituzaingó","km": 30,"z": "Lejano"},{"n": "Ituzaingó Centro","p": "Ituzaingó","km": 32,"z": "Lejano"},{"n": "Villa Udaondo","p": "Ituzaingó","km": 34,"z": "Lejano"},{"n": "José C. Paz","p": "José C. Paz","km": 40,"z": "Lejano"},{"n": "Ciudad Evita","p": "La Matanza","km": 25,"z": "Lejano"},{"n": "Isidro Casanova","p": "La Matanza","km": 26,"z": "Lejano"},{"n": "Gregorio de Laferrere","p": "La Matanza","km": 30,"z": "Lejano"},{"n": "Rafael Castillo","p": "La Matanza","km": 32,"z": "Lejano"},{"n": "González Catán","p": "La Matanza","km": 36,"z": "Lejano"},{"n": "Llavallol","p": "Lomas de Zamora","km": 28,"z": "Lejano"},{"n": "Los Polvorines","p": "Malvinas Argentinas","km": 35,"z": "Lejano"},{"n": "Grand Bourg","p": "Malvinas Argentinas","km": 38,"z": "Lejano"},{"n": "San Antonio de Padua","p": "Merlo","km": 35,"z": "Lejano"},{"n": "Merlo Centro","p": "Merlo","km": 38,"z": "Lejano"},{"n": "Parque San Martín","p": "Merlo","km": 40,"z": "Lejano"},{"n": "Paso del Rey","p": "Moreno","km": 39,"z": "Lejano"},{"n": "Morón Centro","p": "Morón","km": 25,"z": "Lejano"},{"n": "Castelar","p": "Morón","km": 28,"z": "Lejano"},{"n": "Guernica","p": "Presidente Perón","km": 40,"z": "Lejano"},{"n": "Ezpeleta","p": "Quilmes","km": 26,"z": "Lejano"},{"n": "Villa La Florida","p": "Quilmes","km": 28,"z": "Lejano"},{"n": "San Francisco Solano","p": "Quilmes","km": 30,"z": "Lejano"},{"n": "Victoria","p": "San Fernando","km": 26,"z": "Lejano"},{"n": "San Fernando","p": "San Fernando","km": 28,"z": "Lejano"},{"n": "Virreyes","p": "San Fernando","km": 29,"z": "Lejano"},{"n": "Boulogne","p": "San Isidro","km": 25,"z": "Lejano"},{"n": "José León Suárez","p": "San Martín","km": 26,"z": "Lejano"},{"n": "Loma Hermosa","p": "San Martín","km": 28,"z": "Lejano"},{"n": "Bella Vista","p": "San Miguel","km": 32,"z": "Lejano"},{"n": "San Miguel","p": "San Miguel","km": 35,"z": "Lejano"},{"n": "Muñiz","p": "San Miguel","km": 36,"z": "Lejano"},{"n": "Don Torcuato","p": "Tigre","km": 30,"z": "Lejano"},{"n": "El Talar","p": "Tigre","km": 32,"z": "Lejano"},{"n": "Tigre Centro","p": "Tigre","km": 32,"z": "Lejano"},{"n": "General Pacheco","p": "Tigre","km": 35,"z": "Lejano"},{"n": "Rincón de Milberg","p": "Tigre","km": 35,"z": "Lejano"},{"n": "Benavídez","p": "Tigre","km": 40,"z": "Lejano"},{"n": "Nordelta","p": "Tigre","km": 40,"z": "Lejano"},{"n": "Pablo Podestá","p": "Tres de Febrero","km": 26,"z": "Lejano"},{"n": "Campana","p": "Campana","km": 80,"z": "Muy Lejano"},{"n": "Cañuelas","p": "Cañuelas","km": 65,"z": "Muy Lejano"},{"n": "Garín","p": "Escobar","km": 42,"z": "Muy Lejano"},{"n": "Maschwitz","p": "Escobar","km": 46,"z": "Muy Lejano"},{"n": "Belén de Escobar","p": "Escobar","km": 52,"z": "Muy Lejano"},{"n": "Matheu","p": "Escobar","km": 55,"z": "Muy Lejano"},{"n": "Tristán Suárez","p": "Ezeiza","km": 42,"z": "Muy Lejano"},{"n": "Carlos Spegazzini","p": "Ezeiza","km": 46,"z": "Muy Lejano"},{"n": "Ingeniero Allan","p": "Florencio Varela","km": 42,"z": "Muy Lejano"},{"n": "General Rodríguez","p": "General Rodríguez","km": 55,"z": "Muy Lejano"},{"n": "Virrey del Pino","p": "La Matanza","km": 45,"z": "Muy Lejano"},{"n": "Junio","p": "La Matanza","km": 50,"z": "Muy Lejano"},{"n": "City Bell","p": "La Plata","km": 50,"z": "Muy Lejano"},{"n": "La Plata Centro","p": "La Plata","km": 60,"z": "Muy Lejano"},{"n": "Luján","p": "Luján","km": 70,"z": "Muy Lejano"},{"n": "Tortuguitas","p": "Malvinas Argentinas","km": 42,"z": "Muy Lejano"},{"n": "Libertad","p": "Merlo","km": 42,"z": "Muy Lejano"},{"n": "Mariano Acosta","p": "Merlo","km": 48,"z": "Muy Lejano"},{"n": "Moreno Centro","p": "Moreno","km": 42,"z": "Muy Lejano"},{"n": "La Reja","p": "Moreno","km": 45,"z": "Muy Lejano"},{"n": "Francisco Álvarez","p": "Moreno","km": 48,"z": "Muy Lejano"},{"n": "Cuartel V","p": "Moreno","km": 50,"z": "Muy Lejano"},{"n": "Del Viso","p": "Pilar","km": 45,"z": "Muy Lejano"},{"n": "Derqui","p": "Pilar","km": 50,"z": "Muy Lejano"},{"n": "Pilar Centro","p": "Pilar","km": 56,"z": "Muy Lejano"},{"n": "Parque Industrial","p": "Pilar","km": 62,"z": "Muy Lejano"},{"n": "Fátima","p": "Pilar","km": 65,"z": "Muy Lejano"},{"n": "Alejandro Korn","p": "San Vicente","km": 50,"z": "Muy Lejano"},{"n": "San Vicente","p": "San Vicente","km": 55,"z": "Muy Lejano"},{"n": "Dique Luján","p": "Tigre","km": 45,"z": "Muy Lejano"},{"n": "Zárate","p": "Zárate","km": 90,"z": "Muy Lejano"}];
+    function fatal(msg, hint){
+      var d=document.getElementById('fatal');
+      if(!d){alert(msg);return;}
+      document.getElementById('fatal-msg').textContent=msg;
+      document.getElementById('fatal-hint').textContent=hint||'';
+      d.style.display='block';
+    }
+    window.addEventListener('error', function(ev){
+      fatal(ev.message+'  ('+(ev.filename||'').split('/').pop()+':'+ev.lineno+')',
+            'Si dice "L is not defined", el navegador no pudo bajar Leaflet: revisá la conexión o el bloqueador de scripts.');
+    });
+    if (typeof L === 'undefined') {
+      fatal('No se cargó Leaflet (la librería del mapa).',
+            'Se baja de unpkg.com. Necesitás internet la primera vez, y que ningún antivirus o bloqueador corte el pedido. Probá abrir el archivo con otro navegador.');
+      throw new Error('leaflet ausente');
+    }
+
+    const COLORES = ["#22c55e","#3b82f6","#f59e0b","#ef4444","#a855f7","#ec4899","#06b6d4","#14b8a6"];
+    const SERVICIOS = ["Rastreros","Roedores","Voladores Interior","Voladores Exterior","Desinfección"];
+    // Precio CABA para el rango <=1000 m2. Cada rango superior es x1.25.
+    const BASE = { "Rastreros":50000, "Roedores":62500, "Voladores Interior":78125, "Voladores Exterior":97656, "Desinfección":78125 };
+    const INSUMOS = { "Aerosol":7000, "Aerosol ahuyentador":15000, "Caja cebadera":7500, "Bandeja de cebado":0, "Trampa UV":120000 };
+    const RECARGOS = { "17 a 20":20, "20 a 22":35, "22 a 01":50, "Sabado 9 a 12:30":20, "Rastreros exterior":25, "IVA":21 };
+    const MULT_DEF = 1.10;
+
+    let zonas = [];
+    let zonaIdCounter = 1;
+    let searchMarker = null;
+
+    // --- Mapa ---
+    const map = L.map('map').setView([-34.6186, -58.4326], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    const drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
+
+    const drawControl = new L.Control.Draw({
+        position: 'topright',
+        draw: {
+            polygon: { allowIntersection: false, shapeOptions: { color: COLORES[0], fillOpacity: 0.2, weight: 2 } },
+            polyline: false, circle: false, rectangle: false, marker: false, circlemarker: false
+        },
+        edit: { featureGroup: drawnItems, remove: true }
+    });
+    map.addControl(drawControl);
+
+    map.on(L.Draw.Event.CREATED, (e) => {
+        const layer = e.layer;
+        const vertices = layer.getLatLngs()[0].map(ll => [ll.lat, ll.lng]);
+        const color = COLORES[zonas.length % COLORES.length];
+        const zona = armadoCABA
+          ? { id: zonaIdCounter++, nombre: 'CABA', vertices: vertices, color: '#64748b', mult: 1, esCABA: true, layer: layer }
+          : { id: zonaIdCounter++, nombre: `Zona ${zonas.length + 1}`,
+              vertices: vertices, color: color, mult: MULT_DEF, layer: layer };
+        if (armadoCABA) { armadoCABA = false; zonas = zonas.filter(z => !z.esCABA || z.layer === layer); }
+        layer.setStyle({ color: zona.color, fillColor: zona.color, fillOpacity: zona.esCABA ? 0.35 : 0.2, weight: zona.esCABA ? 3 : 2 });
+        layer.zona_id = zona.id;
+        drawnItems.addLayer(layer);
+        zonas.push(zona);
+        renderList();
+        guardarLocal();
+    });
+
+    map.on(L.Draw.Event.EDITED, (e) => {
+        e.layers.eachLayer((layer) => {
+            const zona = zonas.find(z => z.id === layer.zona_id);
+            if (zona) zona.vertices = layer.getLatLngs()[0].map(ll => [ll.lat, ll.lng]);
+        });
+        guardarLocal();
+    });
+
+    map.on(L.Draw.Event.DELETED, (e) => {
+        e.layers.eachLayer((layer) => { zonas = zonas.filter(z => z.id !== layer.zona_id); });
+        renderList();
+        guardarLocal();
+    });
+
+    // --- Point-in-polygon ---
+    function puntoEnPoligono(lat, lng, vertices) {
+        let dentro = false, j = vertices.length - 1;
+        for (let i = 0; i < vertices.length; i++) {
+            const [yi, xi] = vertices[i], [yj, xj] = vertices[j];
+            if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) dentro = !dentro;
+            j = i;
+        }
+        return dentro;
+    }
+
+    function buscarZona(lat, lng) {
+        for (const zona of zonas) if (puntoEnPoligono(lat, lng, zona.vertices)) return zona;
+        return null;
+    }
+
+    // --- Persistencia local ---
+    function guardarLocal() {
+        const data = zonas.map(z => ({ nombre: z.nombre, vertices: z.vertices, color: z.color, mult: z.mult, esCABA: !!z.esCABA }));
+        localStorage.setItem('zonas', JSON.stringify(data));
+    }
+
+    function cargarLocal() {
+        const data = localStorage.getItem('zonas');
+        if (!data) return;
+        const saved = JSON.parse(data);
+        saved.forEach(z => {
+            const layer = L.polygon(z.vertices, { color: z.color, fillColor: z.color, fillOpacity: 0.2, weight: 2 }).addTo(drawnItems);
+            const zona = { id: zonaIdCounter++, nombre: z.nombre, vertices: z.vertices, color: z.color, mult: z.mult ?? MULT_DEF, esCABA: !!z.esCABA, layer };
+            layer.zona_id = zona.id;
+            zonas.push(zona);
+        });
+        renderList();
+    }
+
+    // --- Export/Import ---
+    function exportarZonas() {
+        const data = zonas.map(z => ({ nombre: z.nombre, vertices: z.vertices, mult: z.mult }));
+        document.getElementById('export-json').value = JSON.stringify(data, null, 2);
+        document.getElementById('modal-export').classList.add('show');
+    }
+
+    function copiarExport() {
+        const textarea = document.getElementById('export-json');
+        textarea.select();
+        document.execCommand('copy');
+        alert('JSON copiado al portapapeles');
+    }
+
+    function mostrarImportar() {
+        document.getElementById('import-json').value = '';
+        document.getElementById('modal-import').classList.add('show');
+    }
+
+    function importarZonas() {
+        try {
+            const json = document.getElementById('import-json').value;
+            const data = JSON.parse(json);
+            drawnItems.clearLayers();
+            zonas = [];
+            data.forEach((z, i) => {
+                const color = COLORES[i % COLORES.length];
+                const layer = L.polygon(z.vertices, { color, fillColor: color, fillOpacity: 0.2, weight: 2 }).addTo(drawnItems);
+                const zona = { id: zonaIdCounter++, nombre: z.nombre, vertices: z.vertices, color, mult: z.mult ?? MULT_DEF, layer };
+                layer.zona_id = zona.id;
+                zonas.push(zona);
+            });
+            renderList();
+            guardarLocal();
+            cerrarModal('modal-import');
+        } catch (err) {
+            alert('Error al importar: ' + err.message);
+        }
+    }
+
+    function copiarFuncion() {
+        const data = zonas.map(z => ({ nombre: z.nombre, vertices: z.vertices, mult: z.mult }));
+        const code = `// Función standalone para buscar zona
+// Pega tus zonas exportadas aqui:
+const ZONAS = ${JSON.stringify(data, null, 2)};
+
+function puntoEnPoligono(lat, lng, vertices) {
+    let dentro = false, j = vertices.length - 1;
+    for (let i = 0; i < vertices.length; i++) {
+        const [yi, xi] = vertices[i], [yj, xj] = vertices[j];
+        if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)
+            dentro = !dentro;
+        j = i;
+    }
+    return dentro;
+}
+
+function buscarZona(lat, lng) {
+    for (const zona of ZONAS) {
+        if (puntoEnPoligono(lat, lng, zona.vertices)) {
+            return zona; // Retorna: { nombre, vertices, precios }
+        }
+    }
+    return null; // No encontrada
+}
+
+// Uso:
+const resultado = buscarZona(-34.6011, -58.3833);
+console.log(resultado);
+// => { nombre: "Zona 1", precios: { plagas: 40000, ... }, ... }
+`;
+        document.getElementById('funcion-code').value = code;
+        document.getElementById('modal-funcion').classList.add('show');
+    }
+
+    function copiarFuncion2() {
+        const textarea = document.getElementById('funcion-code');
+        textarea.select();
+        document.execCommand('copy');
+        alert('Función copiada al portapapeles');
+    }
+
+    function cerrarModal(id) {
+        document.getElementById(id).classList.remove('show');
+    }
+
+    // --- Render sidebar ---
+    function renderList(activeId = null) {
+        const container = document.getElementById('zonas-list');
+        container.innerHTML = '';
+        if (zonas.length === 0) {
+            container.innerHTML = '<div style="padding:20px;text-align:center;color:#64748b;font-size:13px">No hay zonas. Usa 🔷 para dibujar.</div>';
+            return;
+        }
+        zonas.forEach(zona => {
+            const card = document.createElement('div');
+            card.className = 'zona-card';
+            if (zona.id === activeId) card.classList.add('active');
+            card.innerHTML = `
+                <div class="zona-header">
+                    <div class="zona-color" style="background:${zona.color}"></div>
+                    <input class="zona-nombre" value="${zona.nombre}" data-id="${zona.id}" />
+                    <button class="zona-delete" data-id="${zona.id}">&times;</button>
+                </div>
+                <div class="zona-precios">
+                    <div class="precio-input">
+                        <label>Multiplicador</label>
+                        <input type="number" step="0.05" value="${zona.mult}" data-id="${zona.id}" data-mult="1" />
+                    </div>
+                    <div class="precio-input">
+                        <label>Aumento</label>
+                        <input type="text" value="+${Math.round((zona.mult-1)*100)}%" readonly />
+                    </div>
+                </div>
+            `;
+            card.querySelector('.zona-nombre').addEventListener('change', (e) => {
+                const z = zonas.find(z => z.id === zona.id);
+                if (z) { z.nombre = e.target.value; guardarLocal(); }
+            });
+            card.querySelectorAll('.precio-input input[data-mult]').forEach(inp => {
+                inp.addEventListener('change', (e) => {
+                    const z = zonas.find(z => z.id === parseInt(e.target.dataset.id));
+                    if (z) { z.mult = parseFloat(e.target.value) || 1; guardarLocal(); renderList(); validar(); }
+                });
+            });
+            card.querySelector('.zona-delete').addEventListener('click', (e) => {
+                e.stopPropagation();
+                const z = zonas.find(z => z.id === zona.id);
+                if (z && z.layer) {
+                    drawnItems.removeLayer(z.layer);
+                    zonas = zonas.filter(z => z.id !== zona.id);
+                    renderList();
+                    guardarLocal();
+                }
+            });
+            card.addEventListener('click', (e) => {
+                if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+                    if (zona.layer) map.fitBounds(zona.layer.getBounds(), { padding: [50, 50] });
+                }
+            });
+            container.appendChild(card);
+        });
+    }
+
+    // --- Buscar direccion ---
+    document.getElementById('address').addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter') return;
+        const q = e.target.value.trim();
+        if (!q) return;
+        const resultDiv = document.getElementById('result');
+        resultDiv.className = '';
+        resultDiv.innerHTML = 'Buscando...';
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+            const data = await res.json();
+            if (data.length === 0) { resultDiv.innerHTML = 'No se encontró'; return; }
+            const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+            const display = data[0].display_name.split(',').slice(0, 3).join(', ');
+            if (searchMarker) map.removeLayer(searchMarker);
+            const zona = buscarZona(lat, lng);
+            searchMarker = L.marker([lat, lng], {
+                icon: L.divIcon({ className: 'search-marker',
+                    html: '<div style="background:#ef4444;width:12px;height:12px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3)"></div>',
+                    iconSize: [18, 18], iconAnchor: [9, 9] })
+            }).addTo(map);
+            map.setView([lat, lng], 13);
+            if (zona) {
+                resultDiv.className = 'found';
+                resultDiv.innerHTML = `
+                    <div class="result-address">${display}</div>
+                    <div class="result-zona" style="color:${zona.color}">${zona.nombre}</div>
+                    <div class="result-precios">
+                        ${SERVICIOS.map(s => `<div class="result-precio-item"><span style="color:#64748b">${s}:</span> <span style="color:${zona.color};font-weight:600">$${zona.precios[s].toLocaleString('es-AR')}</span></div>`).join('')}
+                    </div>
+                `;
+                renderList(zona.id);
+            } else {
+                resultDiv.innerHTML = `<div class="result-address">${display}</div><div style="color:#ef4444;font-weight:700;margin-top:6px">Fuera de todas las zonas</div>`;
+                renderList();
+            }
+        } catch (err) {
+            resultDiv.innerHTML = 'Error: ' + err.message;
+        }
+    });
+
+    // ---------- Calibracion contra el padron ----------
+    const CENTRO=[-34.6118,-58.4173], GEOKEY='sanitas-geo-v1';
+    const geoCache=JSON.parse(localStorage.getItem(GEOKEY)||'{}');
+    let pararFlag=false;
+
+    function hav(la1,lo1,la2,lo2){const t=Math.PI/180,r=6371,
+      dla=(la2-la1)*t,dlo=(lo2-lo1)*t,
+      x=Math.sin(dla/2)**2+Math.cos(la1*t)*Math.cos(la2*t)*Math.sin(dlo/2)**2;
+      return 2*r*Math.asin(Math.sqrt(x));}
+    function areaPol(vs){let a=0;for(let i=0,j=vs.length-1;i<vs.length;j=i++)a+=vs[j][1]*vs[i][0]-vs[i][1]*vs[j][0];return Math.abs(a/2);}
+    // si varios anillos contienen el punto, gana el mas chico
+    function zonaDe(lat,lon){
+      const caba=zonas.find(z=>z.esCABA);
+      if(caba && puntoEnPoligono(lat,lon,caba.vertices)) return {z:caba,a:0};
+      const hit=zonas.filter(z=>!z.esCABA && puntoEnPoligono(lat,lon,z.vertices));
+      if(!hit.length)return null;
+      return hit.map(z=>({z,a:areaPol(z.vertices)})).sort((p,q)=>p.a-q.a)[0];}
+
+    function validar(){
+      const st=document.getElementById('padron-stat'), ml=document.getElementById('padron-mal');
+      if(!st)return;
+      let n=0,ok=0,mal=[],sin=[];
+      for(const L of PADRON){
+        const c=geoCache[L.n]; if(!c)continue; n++;
+        const z=zonaDe(c.lat,c.lon);
+        if(!z)sin.push(L.n);
+        else if(z.z.esCABA)mal.push(`${L.n}: cae dentro de <b>CABA</b>, pero es del Gran Buenos Aires`);
+        else if(z.z.nombre.trim().toLowerCase()===L.z.toLowerCase())ok++;
+        else mal.push(`${L.n}: polígono dice <b>${z.z.nombre}</b>, lista dice <b>${L.z}</b>`);
+      }
+      const cs=document.getElementById('caba-stat');
+      if(cs){ const c=zonas.find(z=>z.esCABA);
+        if(!c){ cs.innerHTML='Sin dibujar. El resto de las zonas son círculos.'; }
+        else {
+          const afuera=BARRIOS_REF.filter(([n,la,lo])=>!puntoEnPoligono(la,lo,c.vertices));
+          cs.innerHTML=`Dibujada: <b>${c.vertices.length} vértices</b> · barrios de control adentro: `+
+            `<b style="color:${afuera.length?'#ef4444':'#22c55e'}">${BARRIOS_REF.length-afuera.length}/${BARRIOS_REF.length}</b>`+
+            (afuera.length?`<br><span style="color:#ef4444">Quedan afuera: ${afuera.map(x=>x[0]).join(', ')}</span>`:'');
+        } }
+      st.innerHTML=`Geocodificadas: <b>${n}</b> de ${PADRON.length}<br>`+
+        `<span style="color:#22c55e">Coinciden: <b>${ok}</b></span><br>`+
+        `<span style="color:#ef4444">Discrepan: <b>${mal.length}</b></span><br>`+
+        `<span style="color:#f59e0b">Sin polígono: <b>${sin.length}</b></span>`+
+        (n===PADRON.length&&!mal.length&&!sin.length?'<br><b style="color:#22c55e">Calibrado. Ya podés exportar.</b>':'');
+      const mu=malUbicadas();
+      if(mu.length) st.innerHTML+=`<br><span style="color:#facc15">Mal ubicadas: <b>${mu.length}</b> (`+
+        mu.slice(0,6).map(o=>o.n+' '+o.km.toFixed(0)+'km').join(', ')+(mu.length>6?', …':'')+')</span>';
+      ml.innerHTML=[...mal,...sin.map(s=>`${s}: <b style="color:#f59e0b">ningún polígono la contiene</b>`)].join('<br>');
+    }
+
+    async function geocodificar(){
+      pararFlag=false; btnGeo.disabled=true; btnStop.disabled=false;
+      for(const L of PADRON){
+        if(pararFlag)break;
+        if(geoCache[L.n])continue;
+        try{
+          const q=encodeURIComponent(`${L.n}, ${L.p}, Provincia de Buenos Aires, Argentina`);
+          const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&viewbox=-60.5,-33.3,-57.2,-36.0&bounded=1&q=${q}`,{headers:{'Accept-Language':'es'}});
+          const j=await r.json();
+          if(j.length){const lat=+j[0].lat,lon=+j[0].lon;
+            geoCache[L.n]={lat,lon,km:hav(CENTRO[0],CENTRO[1],lat,lon)};
+            localStorage.setItem(GEOKEY,JSON.stringify(geoCache));}
+        }catch(e){console.warn(L.n,e);}
+        validar();
+        await new Promise(s=>setTimeout(s,1100));
+      }
+      btnGeo.disabled=false; btnStop.disabled=true; validar();
+    }
+    function pararGeo(){pararFlag=true;btnStop.disabled=true;btnGeo.disabled=false;}
+
+    // ---------- Generar poligonos desde las localidades ya ubicadas ----------
+    const ORDEN_ZONAS = [["Cercano",1.10],["Media Distancia",1.25],["Lejano",1.35],["Muy Lejano",1.50]];
+
+    // Andrew monotone chain sobre [lat,lon]
+    function hull(pts){
+      if(pts.length<3) return pts.slice();
+      const p=pts.slice().sort((a,b)=>a[1]-b[1]||a[0]-b[0]);
+      const cr=(o,a,b)=>(a[1]-o[1])*(b[0]-o[0])-(a[0]-o[0])*(b[1]-o[1]);
+      const bld=src=>{const h=[];for(const q of src){while(h.length>=2&&cr(h[h.length-2],h[h.length-1],q)<=0)h.pop();h.push(q);}h.pop();return h;};
+      return bld(p).concat(bld(p.slice().reverse()));
+    }
+    // empuja los vertices hacia afuera para que los puntos del borde queden bien adentro
+    function inflar(vs,f,m){
+      const cy=vs.reduce((a,v)=>a+v[0],0)/vs.length, cx=vs.reduce((a,v)=>a+v[1],0)/vs.length;
+      return vs.map(([y,x])=>{
+        const dy=y-cy,dx=x-cx,d=Math.hypot(dy,dx)||1;
+        return [cy+dy*f+dy/d*m, cx+dx*f+dx/d*m];
+      });
+    }
+
+    // una localidad esta mal ubicada si se aleja muchisimo del resto de su misma zona
+    function malUbicadas(){
+      const out=[];
+      for(const [nombre] of ORDEN_ZONAS){
+        const g=PADRON.filter(L=>L.z===nombre&&geoCache[L.n]);
+        if(g.length<4) continue;
+        const ds=g.map(L=>geoCache[L.n].km).sort((a,b)=>a-b);
+        const med=ds[Math.floor(ds.length/2)];
+        const tope=Math.max(med*2.5+8, 15);
+        g.forEach(L=>{ if(geoCache[L.n].km>tope) out.push({n:L.n,z:nombre,km:geoCache[L.n].km,tope:tope}); });
+      }
+      // cualquier cosa a mas de 160 km no es AMBA
+      PADRON.forEach(L=>{ const c=geoCache[L.n];
+        if(c&&c.km>160&&!out.find(o=>o.n===L.n)) out.push({n:L.n,z:L.z,km:c.km,tope:160}); });
+      return out;
+    }
+
+    function reubicar(){
+      const m=malUbicadas();
+      if(!m.length) return alert('No hay localidades mal ubicadas.');
+      if(!confirm(m.length+' localidades quedaron lejísimos de su zona. Se borran y se vuelven a buscar, ahora restringiendo la búsqueda al AMBA. ¿Seguimos?')) return;
+      m.forEach(o=>delete geoCache[o.n]);
+      localStorage.setItem(GEOKEY,JSON.stringify(geoCache));
+      validar(); geocodificar();
+    }
+
+    function sugerirPoligonos(){
+      const descartar=new Set(malUbicadas().map(o=>o.n));
+      const geo=PADRON.filter(L=>geoCache[L.n]&&!descartar.has(L.n));
+      if(geo.length<20) return alert('Primero apretá Geocodificar y esperá a que termine.');
+      if(zonas.length && !confirm('Esto reemplaza las zonas que dibujaste. ¿Seguimos?')) return;
+
+      zonas.forEach(z=>{ if(z.layer) drawnItems.removeLayer(z.layer); });
+      zonas=[]; zonaIdCounter=1;
+
+      // acumulativo: cada anillo contiene a los de adentro
+      let acum=[];
+      ORDEN_ZONAS.forEach(([nombre,mult],i)=>{
+        acum=acum.concat(geo.filter(L=>L.z===nombre).map(L=>[geoCache[L.n].lat,geoCache[L.n].lon]));
+        if(acum.length<3) return;
+        const vs=inflar(hull(acum), 1.02, i===0?0.035:0.02);
+        const color=COLORES[i%COLORES.length];
+        const layer=L.polygon(vs,{color:color,fillColor:color,fillOpacity:0.2,weight:2});
+        drawnItems.addLayer(layer);
+        zonas.push({id:zonaIdCounter++,nombre:nombre,vertices:vs,color:color,mult:mult,layer:layer});
+      });
+      guardarLocal(); renderList(); validar();
+      try{ map.fitBounds(drawnItems.getBounds(),{padding:[20,20]}); }catch(e){}
+      if(descartar.size) alert('Dibujé las zonas ignorando '+descartar.size+' localidades mal ubicadas. Están listadas abajo en amarillo: usá "Reubicar mal ubicadas" para corregirlas.');
+    }
+
+    // ---------- Modo circulos ----------
+    let RADIOS=JSON.parse(localStorage.getItem('sanitas-radios')||'null')||{"Cercano":15,"Media Distancia":25,"Lejano":40,"Muy Lejano":60};
+    let CENTRO_C=JSON.parse(localStorage.getItem('sanitas-centro')||'null')||[-34.6037,-58.3816];
+    let mkCentro=null;
+
+    function renderRadios(){
+      const d=document.getElementById('radios'); if(!d) return;
+      d.innerHTML=ORDEN_ZONAS.map(([n])=>`<div class="precio-input"><label>${n}</label>
+        <input type="number" step="1" min="1" value="${RADIOS[n]}" data-radio="${n}" /></div>`).join('');
+      d.querySelectorAll('input[data-radio]').forEach(i=>i.addEventListener('change',e=>{
+        RADIOS[e.target.dataset.radio]=parseFloat(e.target.value)||1;
+        localStorage.setItem('sanitas-radios',JSON.stringify(RADIOS));
+        aplicarCirculos();
+      }));
+      if(!mkCentro){
+        mkCentro=L.marker(CENTRO_C,{draggable:true,title:'Centro de las zonas'}).addTo(map);
+        mkCentro.on('dragend',()=>{const ll=mkCentro.getLatLng();CENTRO_C=[ll.lat,ll.lng];
+          localStorage.setItem('sanitas-centro',JSON.stringify(CENTRO_C)); aplicarCirculos();});
+      }
+    }
+
+    // circulo real en km convertido a poligono de 72 lados
+    function circuloVs(lat,lon,km){
+      const vs=[], dLat=km/110.574, dLon=km/(111.320*Math.cos(lat*Math.PI/180));
+      for(let a=0;a<360;a+=5) vs.push([lat+dLat*Math.cos(a*Math.PI/180), lon+dLon*Math.sin(a*Math.PI/180)]);
+      return vs;
+    }
+
+    function aplicarCirculos(){
+      zonas.filter(z=>!z.esCABA).forEach(z=>{ if(z.layer) drawnItems.removeLayer(z.layer); });
+      zonas=zonas.filter(z=>z.esCABA);
+      ORDEN_ZONAS.forEach(([nombre,mult],i)=>{
+        const vs=circuloVs(CENTRO_C[0],CENTRO_C[1],RADIOS[nombre]);
+        const color=COLORES[i%COLORES.length];
+        const layer=L.polygon(vs,{color:color,fillColor:color,fillOpacity:0.15,weight:2});
+        drawnItems.addLayer(layer);
+        zonas.push({id:zonaIdCounter++,nombre:nombre,vertices:vs,color:color,mult:mult,layer:layer});
+      });
+      guardarLocal(); renderList(); validar();
+    }
+
+    // prueba radios y se queda con los que menos errores dan
+    function optimizarRadios(){
+      const pts=PADRON.filter(L=>geoCache[L.n]).map(L=>({z:L.z,
+        km:hav(CENTRO_C[0],CENTRO_C[1],geoCache[L.n].lat,geoCache[L.n].lon)}));
+      if(pts.length<20) return alert('Primero geocodificá.');
+      const nombres=ORDEN_ZONAS.map(x=>x[0]);
+      const clasif=(km,R)=>{ for(const n of nombres) if(km<=R[n]) return n; return null; };
+      const errores=R=>pts.reduce((a,p)=>a+(clasif(p.km,R)===p.z?0:1),0);
+      let best={...RADIOS}, bE=errores(best);
+      for(let pas=0;pas<6;pas++){
+        for(const n of nombres){
+          for(let r=2;r<=140;r+=0.5){
+            const t={...best}; t[n]=r;
+            // los radios tienen que ir creciendo
+            let ok=true; for(let i=1;i<nombres.length;i++) if(t[nombres[i]]<=t[nombres[i-1]]) ok=false;
+            if(!ok) continue;
+            const e=errores(t);
+            if(e<bE){ bE=e; best=t; }
+          }
+        }
+      }
+      RADIOS=best;
+      localStorage.setItem('sanitas-radios',JSON.stringify(RADIOS));
+      renderRadios(); aplicarCirculos();
+      alert('Mejores radios encontrados: '+nombres.map(n=>n+' '+best[n]+'km').join(' · ')+
+            '\n\nCon estos círculos fallan '+bE+' de '+pts.length+' localidades.');
+    }
+
+    // ---------- CABA: contorno aproximado (Gral Paz + Riachuelo + costa) ----------
+    const CABA_VS=[[-34.5320,-58.4930],[-34.5480,-58.5030],[-34.5720,-58.5250],[-34.6000,-58.5300],
+      [-34.6260,-58.5310],[-34.6520,-58.5310],[-34.6620,-58.5080],[-34.6800,-58.4620],
+      [-34.6530,-58.4130],[-34.6520,-58.3760],[-34.6400,-58.3540],[-34.6100,-58.3550],
+      [-34.5850,-58.3680],[-34.5600,-58.3900],[-34.5400,-58.4300],[-34.5330,-58.4700]];
+    function borrarTodo(){
+      if(!confirm('¿Borrar las zonas dibujadas y empezar de cero?\n\nNo se pierden las 149 localidades geocodificadas ni los precios.')) return;
+      zonas.forEach(z=>{ if(z.layer) drawnItems.removeLayer(z.layer); });
+      drawnItems.clearLayers();
+      zonas=[]; zonaIdCounter=1;
+      localStorage.removeItem('zonas');
+      renderList(); validar();
+    }
+
+    let armadoCABA=false;
+    function dibujarCABA(){
+      armadoCABA=true;
+      new L.Draw.Polygon(map).enable();
+      alert('Dibujá el contorno de CABA: un click por vértice, doble click para cerrar.\n\nSe guarda como CABA con 0% y le gana a todos los círculos.');
+    }
+    function usarCABAporDefecto(){
+      const vs=CABA_VS.slice();
+      const layer=L.polygon(vs,{color:'#64748b',fillColor:'#64748b',fillOpacity:0.35,weight:3}).addTo(drawnItems);
+      zonas=zonas.filter(z=>{ if(z.esCABA&&z.layer) drawnItems.removeLayer(z.layer); return !z.esCABA; });
+      const z={id:zonaIdCounter++,nombre:'CABA',vertices:vs,color:'#64748b',mult:1,esCABA:true,layer};
+      layer.zona_id=z.id; zonas.push(z);
+      guardarLocal(); renderList(); validar();
+    }
+    // usa el CABA dibujado si existe; si no, el contorno de respaldo
+    function enCABA(lat,lon){
+      const c=zonas.find(z=>z.esCABA);
+      return puntoEnPoligono(lat,lon, c?c.vertices:CABA_VS);
+    }
+
+    // ---------- Traer todas las localidades de la region desde OpenStreetMap ----------
+    const OSMKEY='sanitas-osm-v1', CRUDOKEY='sanitas-osm-crudo-v1';
+    let EXTRA=JSON.parse(localStorage.getItem(OSMKEY)||'[]');
+    const norm=t=>t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+
+    function statOSM(){
+      const d=document.getElementById('osm-stat'); if(!d)return;
+      d.innerHTML = EXTRA.length
+        ? `En el padrón: <b>${PADRON.length}</b> · Traídas de OSM: <b style="color:#22c55e">${EXTRA.length}</b> · Total al exportar: <b>${PADRON.length+EXTRA.length}</b><br><span style="color:#f59e0b">Si el total te parece bajo, volvé a apretar "Traer": se acumula.</span>`
+        : 'Sin localidades cargadas. Apretá "Recalcular".';
+    }
+
+    // lado argentino: todo lo que cae afuera es rio o Uruguay
+    const ARG_VS=[[-33.95,-59.55],[-33.95,-59.15],[-34.12,-58.98],[-34.28,-58.68],
+                  [-34.42,-58.52],[-34.53,-58.40],[-34.60,-58.33],[-34.70,-58.25],
+                  [-34.82,-58.05],[-34.85,-57.90],[-34.90,-57.82],[-35.35,-57.85],[-35.35,-59.55]];
+    const enArgentina=(lat,lon)=>puntoEnPoligono(lat,lon,ARG_VS);
+
+    // barrios de referencia para controlar que el poligono de CABA este completo
+    const BARRIOS_REF=[['Palermo',-34.5780,-58.4260],['Belgrano',-34.5620,-58.4560],['Núñez',-34.5450,-58.4620],
+      ['Recoleta',-34.5880,-58.3930],['Retiro',-34.5920,-58.3740],['Caballito',-34.6180,-58.4430],
+      ['Flores',-34.6320,-58.4620],['Almagro',-34.6100,-58.4200],['Villa Urquiza',-34.5730,-58.4900],
+      ['Devoto',-34.5990,-58.5130],['Liniers',-34.6450,-58.5200],['Mataderos',-34.6570,-58.5040],
+      ['La Boca',-34.6350,-58.3630],['Barracas',-34.6480,-58.3820],['Lugano',-34.6700,-58.4720]];
+
+    // Localidades escritas a mano: 48 barrios de CABA con sus nombres de uso corriente,
+    // mas las del Gran Buenos Aires que no estan en el padron. No depende de ninguna API.
+    const LOCALIDADES = [
+      {n:"Agronomía",lat:-34.5930,lon:-58.4890},
+      {n:"Almagro",lat:-34.6100,lon:-58.4200},
+      {n:"Balvanera",lat:-34.6100,lon:-58.4000},
+      {n:"Barracas",lat:-34.6480,lon:-58.3820},
+      {n:"Belgrano",lat:-34.5620,lon:-58.4560},
+      {n:"Boedo",lat:-34.6280,lon:-58.4130},
+      {n:"Caballito",lat:-34.6180,lon:-58.4430},
+      {n:"Chacarita",lat:-34.5880,lon:-58.4530},
+      {n:"Coghlan",lat:-34.5620,lon:-58.4740},
+      {n:"Colegiales",lat:-34.5760,lon:-58.4500},
+      {n:"Constitución",lat:-34.6270,lon:-58.3870},
+      {n:"Flores",lat:-34.6320,lon:-58.4620},
+      {n:"Floresta",lat:-34.6300,lon:-58.4830},
+      {n:"La Boca",lat:-34.6350,lon:-58.3630},
+      {n:"La Paternal",lat:-34.5960,lon:-58.4680},
+      {n:"Liniers",lat:-34.6450,lon:-58.5200},
+      {n:"Mataderos",lat:-34.6570,lon:-58.5040},
+      {n:"Monte Castro",lat:-34.6180,lon:-58.5040},
+      {n:"Montserrat",lat:-34.6130,lon:-58.3830},
+      {n:"Nueva Pompeya",lat:-34.6520,lon:-58.4180},
+      {n:"Núñez",lat:-34.5450,lon:-58.4620},
+      {n:"Palermo",lat:-34.5780,lon:-58.4260},
+      {n:"Parque Avellaneda",lat:-34.6440,lon:-58.4800},
+      {n:"Parque Chacabuco",lat:-34.6360,lon:-58.4400},
+      {n:"Parque Chas",lat:-34.5850,lon:-58.4780},
+      {n:"Parque Patricios",lat:-34.6390,lon:-58.4020},
+      {n:"Puerto Madero",lat:-34.6100,lon:-58.3630},
+      {n:"Recoleta",lat:-34.5880,lon:-58.3930},
+      {n:"Retiro",lat:-34.5920,lon:-58.3740},
+      {n:"Saavedra",lat:-34.5540,lon:-58.4870},
+      {n:"San Cristóbal",lat:-34.6250,lon:-58.4010},
+      {n:"San Nicolás",lat:-34.6050,lon:-58.3800},
+      {n:"San Telmo",lat:-34.6210,lon:-58.3730},
+      {n:"Vélez Sársfield",lat:-34.6320,lon:-58.4930},
+      {n:"Versalles",lat:-34.6290,lon:-58.5170},
+      {n:"Villa Crespo",lat:-34.5980,lon:-58.4400},
+      {n:"Villa del Parque",lat:-34.6060,lon:-58.4920},
+      {n:"Villa Devoto",lat:-34.5990,lon:-58.5130},
+      {n:"Villa General Mitre",lat:-34.6100,lon:-58.4680},
+      {n:"Villa Lugano",lat:-34.6700,lon:-58.4720},
+      {n:"Villa Luro",lat:-34.6380,lon:-58.5010},
+      {n:"Villa Ortúzar",lat:-34.5830,lon:-58.4680},
+      {n:"Villa Pueyrredón",lat:-34.5790,lon:-58.5010},
+      {n:"Villa Real",lat:-34.6210,lon:-58.5240},
+      {n:"Villa Riachuelo",lat:-34.6850,lon:-58.4650},
+      {n:"Villa Santa Rita",lat:-34.6180,lon:-58.4770},
+      {n:"Villa Soldati",lat:-34.6700,lon:-58.4400},
+      {n:"Villa Urquiza",lat:-34.5730,lon:-58.4900},
+      {n:"Once",lat:-34.6090,lon:-58.4060},
+      {n:"Abasto",lat:-34.6030,lon:-58.4110},
+      {n:"Barrio Norte",lat:-34.5930,lon:-58.4020},
+      {n:"Microcentro",lat:-34.6040,lon:-58.3760},
+      {n:"Tribunales",lat:-34.6010,lon:-58.3850},
+      {n:"Congreso",lat:-34.6090,lon:-58.3920},
+      {n:"Catalinas",lat:-34.5930,lon:-58.3700},
+      {n:"Las Cañitas",lat:-34.5690,lon:-58.4310},
+      {n:"Palermo Hollywood",lat:-34.5820,lon:-58.4370},
+      {n:"Palermo Soho",lat:-34.5880,lon:-58.4290},
+      {n:"Villa Crespo Norte",lat:-34.5940,lon:-58.4460},
+      {n:"Chinatown",lat:-34.5580,lon:-58.4520},
+      {n:"Barrio Chino",lat:-34.5580,lon:-58.4520},
+      {n:"Costanera Sur",lat:-34.6120,lon:-58.3540},
+      {n:"Plaza de Mayo",lat:-34.6080,lon:-58.3720},
+      {n:"Don Orione",lat:-34.8300,lon:-58.3700},
+      {n:"Ministro Rivadavia",lat:-34.8500,lon:-58.3200},
+      {n:"San José",lat:-34.8100,lon:-58.3100},
+      {n:"El Pato",lat:-34.9300,lon:-58.1500},
+      {n:"Sourigues",lat:-34.8300,lon:-58.1900},
+      {n:"Juan María Gutiérrez",lat:-34.8500,lon:-58.1600},
+      {n:"Coronel Brandsen",lat:-35.1700,lon:-58.2400},
+      {n:"Jeppener",lat:-35.2400,lon:-58.2900},
+      {n:"Máximo Paz",lat:-34.9800,lon:-58.6300},
+      {n:"Vicente Casares",lat:-34.9300,lon:-58.6300},
+      {n:"Uribelarrea",lat:-35.0200,lon:-58.8700},
+      {n:"Alejandro Petión",lat:-35.0000,lon:-58.7500},
+      {n:"Gobernador Udaondo",lat:-34.9600,lon:-58.7300},
+      {n:"Maquinista Savio",lat:-34.3500,lon:-58.7900},
+      {n:"Loma Verde",lat:-34.3000,lon:-58.7500},
+      {n:"Puerto Escobar",lat:-34.3300,lon:-58.6600},
+      {n:"Ingeniero Maschwitz",lat:-34.3800,lon:-58.7300},
+      {n:"Transradio",lat:-34.8500,lon:-58.4500},
+      {n:"9 de Abril",lat:-34.7700,lon:-58.4200},
+      {n:"Capilla del Señor",lat:-34.2800,lon:-59.1000},
+      {n:"Los Cardales",lat:-34.3100,lon:-58.9600},
+      {n:"Parada Robles",lat:-34.3000,lon:-59.0300},
+      {n:"La Unión",lat:-34.8500,lon:-58.5500},
+      {n:"Canning",lat:-34.8500,lon:-58.5000},
+      {n:"Villa Vatteone",lat:-34.8200,lon:-58.2800},
+      {n:"La Capilla",lat:-34.8800,lon:-58.2500},
+      {n:"Zeballos",lat:-34.8500,lon:-58.2200},
+      {n:"General Las Heras",lat:-34.9300,lon:-58.9400},
+      {n:"La Choza",lat:-34.8700,lon:-59.0200},
+      {n:"Tapiales",lat:-34.7000,lon:-58.5000},
+      {n:"Villa Celina",lat:-34.7000,lon:-58.4700},
+      {n:"Villa Insuperable",lat:-34.6700,lon:-58.5300},
+      {n:"Ciudad Madero",lat:-34.6800,lon:-58.5300},
+      {n:"20 de Junio",lat:-34.8000,lon:-58.6600},
+      {n:"Villa Scasso",lat:-34.7000,lon:-58.5500},
+      {n:"Los Alamos",lat:-34.7800,lon:-58.6600},
+      {n:"La Salada",lat:-34.7100,lon:-58.4600},
+      {n:"Manuel B. Gonnet",lat:-34.8800,lon:-58.0200},
+      {n:"Villa Elisa",lat:-34.8600,lon:-58.0800},
+      {n:"Tolosa",lat:-34.9000,lon:-57.9700},
+      {n:"Los Hornos",lat:-34.9500,lon:-57.9700},
+      {n:"Berisso",lat:-34.8700,lon:-57.8900},
+      {n:"Ensenada",lat:-34.8600,lon:-57.9100},
+      {n:"Ringuelet",lat:-34.8900,lon:-57.9800},
+      {n:"Melchor Romero",lat:-34.9300,lon:-58.0500},
+      {n:"Lisandro Olmos",lat:-34.9900,lon:-58.0500},
+      {n:"Gorina",lat:-34.8900,lon:-58.0500},
+      {n:"Arturo Seguí",lat:-34.8700,lon:-58.1200},
+      {n:"Abasto",lat:-34.9700,lon:-58.1300},
+      {n:"Villa Caraza",lat:-34.7200,lon:-58.4200},
+      {n:"Villa Diamante",lat:-34.7000,lon:-58.4100},
+      {n:"Villa Jardín",lat:-34.7300,lon:-58.4000},
+      {n:"Villa Centenario",lat:-34.7300,lon:-58.4200},
+      {n:"Parque Barón",lat:-34.7800,lon:-58.3900},
+      {n:"Fiorito",lat:-34.6900,lon:-58.4400},
+      {n:"Open Door",lat:-34.5000,lon:-59.2000},
+      {n:"Jáuregui",lat:-34.6000,lon:-59.1500},
+      {n:"Olivera",lat:-34.6600,lon:-59.2500},
+      {n:"Torres",lat:-34.4400,lon:-59.1200},
+      {n:"Carlos Keen",lat:-34.5300,lon:-59.2600},
+      {n:"Pablo Nogués",lat:-34.4900,lon:-58.7100},
+      {n:"Villa de Mayo",lat:-34.5100,lon:-58.6800},
+      {n:"Ingeniero Sourdeaux",lat:-34.5100,lon:-58.7100},
+      {n:"Área de Promoción El Triángulo",lat:-34.4900,lon:-58.7400},
+      {n:"Marcos Paz",lat:-34.7800,lon:-58.8400},
+      {n:"Pontevedra",lat:-34.7500,lon:-58.7200},
+      {n:"Agustina",lat:-34.7800,lon:-58.8000},
+      {n:"Trujui",lat:-34.6000,lon:-58.8300},
+      {n:"Catonas",lat:-34.5800,lon:-58.8500},
+      {n:"Los Robles",lat:-34.6400,lon:-58.8800},
+      {n:"Villa Rosa",lat:-34.4000,lon:-58.9000},
+      {n:"La Lonja",lat:-34.4500,lon:-58.8300},
+      {n:"Manzanares",lat:-34.3800,lon:-58.8500},
+      {n:"Zelaya",lat:-34.3400,lon:-58.9400},
+      {n:"Villa Astolfi",lat:-34.4400,lon:-58.8900},
+      {n:"Bernal Oeste",lat:-34.7200,lon:-58.3000},
+      {n:"La Paz",lat:-34.7500,lon:-58.2800},
+      {n:"Las Lomas de San Isidro",lat:-34.4900,lon:-58.5500},
+      {n:"Punta Chica",lat:-34.4500,lon:-58.5400},
+      {n:"Billinghurst",lat:-34.6000,lon:-58.5700},
+      {n:"Villa Lynch",lat:-34.5900,lon:-58.5400},
+      {n:"Chilavert",lat:-34.5900,lon:-58.5900},
+      {n:"José Ingenieros",lat:-34.6000,lon:-58.5500},
+      {n:"Churruca",lat:-34.5900,lon:-58.5300},
+      {n:"Villa Raffo",lat:-34.6000,lon:-58.5100},
+      {n:"Campo de Mayo",lat:-34.5300,lon:-58.6600},
+      {n:"Santa María",lat:-34.5000,lon:-58.7500},
+      {n:"Ricardo Rojas",lat:-34.4400,lon:-58.6800},
+      {n:"Troncos del Talar",lat:-34.4500,lon:-58.6600},
+      {n:"Villa La Ñata",lat:-34.4000,lon:-58.6000},
+      {n:"Delta del Paraná",lat:-34.3800,lon:-58.5500},
+      {n:"Florida Oeste",lat:-34.5300,lon:-58.5200},
+      {n:"Villa Martelli",lat:-34.5600,lon:-58.5000},
+      {n:"Lima",lat:-34.0600,lon:-59.1900},
+      {n:"Alsina",lat:-34.1000,lon:-59.0500},
+      {n:"Escalada",lat:-34.1500,lon:-59.2000},
+      {n:"Guernica",lat:-35.0000,lon:-58.4000},
+      {n:"El Jagüel",lat:-34.8100,lon:-58.4700},
+      {n:"San Vicente",lat:-35.0200,lon:-58.4200},
+      {n:"Domselaar",lat:-35.1400,lon:-58.2400},
+      {n:"Gómez",lat:-35.0500,lon:-58.3000}
+    ];
+
+    const ESPEJOS=['https://overpass-api.de/api/interpreter',
+                   'https://overpass.kumi.systems/api/interpreter',
+                   'https://overpass.openstreetmap.ru/api/interpreter',
+                   'https://overpass.osm.ch/api/interpreter'];
+    // region partida en 12: cada consulta es chica, y las densas (CABA y norte) van solas
+    const CUADROS=(()=>{
+      const c=[], lats=[-35.35,-34.95,-34.70,-34.55,-34.30,-33.95], lons=[-59.55,-59.00,-58.60,-58.30,-57.85];
+      for(let i=0;i<lats.length-1;i++) for(let j=0;j<lons.length-1;j++)
+        c.push([lats[i],lons[j],lats[i+1],lons[j+1]]);
+      return c;
+    })();
+
+    const TIPOS_OSM=new Set(['city','town','village','hamlet','suburb','neighbourhood','borough','quarter']);
+    // ante nombres repetidos gana el que esta dentro de CABA, y si no el mas cercano al centro
+    function procesarOSM(lista){
+      const yaEsta=new Set(PADRON.map(L=>norm(L.n)));
+      const cand={}; let uruguay=0;
+      for(const e of lista){
+        if(!e.n||e.n.length<3||!TIPOS_OSM.has(e.t)) continue;
+        if(!enArgentina(e.lat,e.lon)){ uruguay++; continue; }
+        const k=norm(e.n);
+        if(yaEsta.has(k)) continue;
+        (cand[k]=cand[k]||[]).push(e);
+      }
+      let homonimos=0;
+      EXTRA=[];
+      for(const k in cand){
+        const opciones=cand[k];
+        if(opciones.length>1) homonimos++;
+        opciones.sort((a,b)=>{
+          const ca=enCABA(a.lat,a.lon)?0:1, cb=enCABA(b.lat,b.lon)?0:1;
+          if(ca!==cb) return ca-cb;
+          return hav(CENTRO_C[0],CENTRO_C[1],a.lat,a.lon)-hav(CENTRO_C[0],CENTRO_C[1],b.lat,b.lon);
+        });
+        const g=opciones[0];
+        EXTRA.push({n:g.n,lat:g.lat,lon:g.lon});
+      }
+      EXTRA.sort((a,b)=>a.n.localeCompare(b.n,'es'));
+      localStorage.setItem(OSMKEY,JSON.stringify(EXTRA));
+      return {uruguay:uruguay,homonimos:homonimos};
+    }
+
+    // arma EXTRA con la lista fija + lo que haya traido la API alguna vez
+    function armarLocalidades(){
+      const crudo=JSON.parse(localStorage.getItem(CRUDOKEY)||'[]');
+      const fijas=LOCALIDADES.map(e=>({n:e.n,lat:e.lat,lon:e.lon,t:'suburb'}));
+      return procesarOSM(fijas.concat(crudo));
+    }
+    function soloCuradas(){
+      if(!confirm('¿Dejar solo las localidades escritas a mano en la herramienta?\n\nSe borra lo traído de OpenStreetMap. Podés volver a traerlo cuando quieras.')) return;
+      localStorage.removeItem(CRUDOKEY);
+      const r=armarLocalidades();
+      statOSM(); validar();
+      alert('Listo: '+EXTRA.length+' localidades curadas, además de tus '+PADRON.length+' del padrón.\n\nTotal: '+(EXTRA.length+PADRON.length)+'.\n\nExportá el ZONAS.md.');
+    }
+
+    function reprocesarOSM(){
+      const r=armarLocalidades();
+      statOSM(); validar();
+      alert('Recalculado: '+EXTRA.length+' localidades.\n\n'+
+            'Escritas a mano en la herramienta: '+LOCALIDADES.length+'\n'+
+            'Descartadas de Uruguay o el río: '+r.uruguay+'\n'+
+            'Nombres repetidos resueltos por cercanía: '+r.homonimos);
+    }
+
+    async function pedir(url){
+      const r=await fetch(url,{method:'GET'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const t=await r.text();
+      let j; try{ j=JSON.parse(t); }catch(e){ throw new Error('respuesta ilegible: '+t.slice(0,120)); }
+      if(j.remark) throw new Error('el servidor avisa: '+j.remark);
+      return j.elements||[];
+    }
+
+    async function traerLocalidades(){
+      const b=document.getElementById('btnOSM');
+      const st=document.getElementById('osm-stat');
+      const crudos=[]; const errores=[]; const fallados=[];
+      b.disabled=true;
+      const N=CUADROS.length;
+      for(let c=0;c<N;c++){
+        const [s1,w1,n1,e1]=CUADROS[c];
+        const q=`[out:json][timeout:90];node["place"](${s1},${w1},${n1},${e1});out body;`;
+        let listo=false;
+        // dos rondas por cuadrante: los servidores fallan de a ratos
+        for(let ronda=0; ronda<2 && !listo; ronda++){
+          for(const esp of ESPEJOS){
+            b.textContent=`Cuadrante ${c+1} de ${N}${ronda?' (reintento)':''}...`;
+            try{
+              const els=await pedir(esp+'?data='+encodeURIComponent(q));
+              crudos.push(...els); listo=true; break;
+            }catch(err){ errores.push(`c${c+1} ${esp.split('/')[2]}: ${err.message}`); }
+          }
+          if(!listo) await new Promise(r=>setTimeout(r,1500));
+        }
+        if(!listo) fallados.push(c+1);
+        if(st) st.innerHTML=`Cuadrante ${c+1}/${N} · puntos <b>${crudos.length}</b>`+
+          (fallados.length?` · <span style="color:#ef4444">fallaron ${fallados.join(', ')}</span>`:'');
+        await new Promise(r=>setTimeout(r,500));
+      }
+      b.textContent='Traer todas las localidades de la región'; b.disabled=false;
+
+      if(!crudos.length){
+        alert('No vino ninguna localidad.\n\nDetalle:\n'+errores.slice(0,6).join('\n')+
+              '\n\nPasame este texto y te dejo la lista escrita adentro del archivo.');
+        statOSM(); return;
+      }
+      // se suma a lo que ya habia: una consulta incompleta no borra lo bueno
+      const nuevos=crudos.filter(e=>e.tags&&e.tags.name).map(e=>({n:e.tags.name.trim(),lat:e.lat,lon:e.lon,t:e.tags.place}));
+      const previos=JSON.parse(localStorage.getItem(CRUDOKEY)||'[]');
+      const clave=e=>norm(e.n)+'|'+e.lat.toFixed(4)+'|'+e.lon.toFixed(4);
+      const mapa=new Map(previos.map(e=>[clave(e),e]));
+      let sumados=0;
+      for(const e of nuevos) if(!mapa.has(clave(e))){ mapa.set(clave(e),e); sumados++; }
+      const crudoMin=[...mapa.values()];
+      try{ localStorage.setItem(CRUDOKEY,JSON.stringify(crudoMin)); }catch(e){}
+      const r=armarLocalidades();
+      const descartes=r.uruguay;
+      statOSM();
+      alert('Listo: '+EXTRA.length+' localidades, además de tus '+PADRON.length+'.\n\n'+
+            'Puntos acumulados en total: '+crudoMin.length+' (esta vez sumaste '+sumados+')\n'+
+            'Descartadas por estar en Uruguay o en el río: '+descartes+'\n'+
+            'Nombres repetidos resueltos por cercanía: '+r.homonimos+
+            (fallados.length
+              ? '\n\nATENCION: fallaron los cuadrantes '+fallados.join(', ')+' de '+N+
+                '.\nVolvé a apretar el botón: se acumula y va a completar lo que falta.'
+              : '\n\nLos '+N+' cuadrantes respondieron bien.')+
+            '\n\nYa quedan guardadas. Exportá el ZONAS.md.');
+    }
+
+    let capaPuntos=null;
+    function verPuntos(){
+      if(capaPuntos){ map.removeLayer(capaPuntos); capaPuntos=null; return; }
+      capaPuntos=L.layerGroup().addTo(map);
+      const col={"Cercano":"#22c55e","Media Distancia":"#3b82f6","Lejano":"#f59e0b","Muy Lejano":"#ef4444"};
+      const mal=new Set(malUbicadas().map(o=>o.n));
+      PADRON.forEach(La=>{ const c=geoCache[La.n]; if(!c) return;
+        L.circleMarker([c.lat,c.lon],{radius:mal.has(La.n)?7:4,color:mal.has(La.n)?'#000':col[La.z],
+          fillColor:col[La.z],fillOpacity:0.9,weight:mal.has(La.n)?3:1})
+         .bindTooltip(La.n+' — '+La.z+' ('+c.km.toFixed(0)+' km)'+(mal.has(La.n)?' ⚠ MAL UBICADA':''))
+         .addTo(capaPuntos); });
+    }
+
+    // ---------- Export de los documentos que lee el bot ----------
+    const money=n=>'$'+Math.round(n).toLocaleString('es-AR');
+    const RANGOS=['≤1000 m²','1000-3000 m²','3000-5000 m²'];
+
+    function docZonas(){
+      // una sola lista por zona: el circulo decide para todas
+      const gr={}; let fuera=[];
+      const meter=(zn,nombre,partido)=>{ (gr[zn]=gr[zn]||{})[partido]=(gr[zn][partido]||[]); gr[zn][partido].push(nombre); };
+
+      for(const L of PADRON){
+        const c=geoCache[L.n];
+        if(!c){ meter(L.z,L.n,L.p); continue; }          // sin geocodificar: queda como estaba
+        const z=zonaDe(c.lat,c.lon);
+        if(!z){ fuera.push(L.n); continue; }
+        meter(z.z.nombre, L.n, L.p);
+      }
+      for(const e of EXTRA){
+        const z=zonaDe(e.lat,e.lon);
+        if(!z){ fuera.push(e.n); continue; }
+        meter(z.z.nombre, e.n, 'Otras');
+      }
+
+      const orden=['CABA'].concat(zonas.filter(z=>!z.esCABA).slice().sort((a,b)=>a.mult-b.mult).map(z=>z.nombre));
+      for(const k of Object.keys(gr)) if(!orden.includes(k)) orden.push(k);
+      // sin porcentajes en los encabezados: el bot tiene prohibido nombrarlos y los precios de PRECIOS ya los traen adentro
+      const pct=zn=>'';
+
+      let total=0;
+      let m=`# ZONAS\n\nLocalidad → zona. Generado por mapa_poligonos.html el ${new Date().toISOString().slice(0,10)}.\n\n`;
+      m+=`**Cómo se usa:** buscar la localidad en las listas de abajo y quedarse con el nombre de la zona. Con ese nombre se entra a la sección \`### ZONA: <nombre>\` de PRECIOS.md. Si la localidad no aparece en ninguna lista, derivar a un asesor.\n\n`;
+      m+=`El nombre de la zona es **interno**: nunca se le nombra al cliente, ni la zona ni ningún porcentaje.\n\n`;
+
+      let cuerpo='';
+      for(const zn of orden){
+        if(!gr[zn]) continue;
+        const parts=gr[zn];
+        const n=Object.values(parts).reduce((a,v)=>a+v.length,0); total+=n;
+        cuerpo+=`## ${zn}${pct(zn)}\n\n`;
+        for(const pn of Object.keys(parts).sort((a,b)=>a==='Otras'?1:b==='Otras'?-1:a.localeCompare(b,'es'))){
+          const lista=[...new Set(parts[pn])].sort((a,b)=>a.localeCompare(b,'es'));
+          cuerpo+= pn==='Otras' ? `${lista.join(', ')}\n\n` : `**${pn}:** ${lista.join(', ')}\n\n`;
+        }
+      }
+      // Partido -> zona: se usa cuando el cliente nombra el partido y no sabe la localidad exacta
+      const pz={};
+      for(const zn of Object.keys(gr)) for(const pn of Object.keys(gr[zn])){ if(pn==='Otras') continue; (pz[pn]=pz[pn]||[]).push(zn); }
+      let tabla=`## Partido \u2192 zona\n\n`;
+      tabla+=`Se usa **solo** cuando el cliente nombr\u00f3 el partido y no sabe la localidad exacta. Si dijo la localidad, manda la lista de abajo: siempre gana la localidad.\n\n`;
+      tabla+=`- **Alcance \u00abuna sola\u00bb** \u2192 la base sale igual que si supieras la localidad. No hace falta aclarar nada.\n`;
+      tabla+=`- **Alcance con varias zonas** \u2192 se usa la zona de esta columna, que es la m\u00e1s cercana y por lo tanto el piso, y la ficha lleva la l\u00ednea \`Zona estimada por partido \u2014 confirmar la direcci\u00f3n en C\u00edrculos\`.\n\n`;
+      tabla+=`| Partido | Zona para la base | Alcance real del partido |\n|---|---|---|\n`;
+      for(const pn of Object.keys(pz).sort((a,b)=>a.localeCompare(b,'es'))){
+        const zs=[...new Set(pz[pn])].sort((a,b)=>orden.indexOf(a)-orden.indexOf(b));
+        tabla+=`| ${pn} | ${zs[0]} | ${zs.length===1?'una sola':zs.join(' y ')} |\n`;
+      }
+      tabla+=`\n---\n\n`;
+      m+=`Cubre **${total} localidades**.\n\n`+tabla+cuerpo;
+
+      if(fuera.length){
+        m+=`---\n\n## Fuera de todas las zonas — derivar\n\nQuedan más allá del último círculo. No se cotizan.\n\n`;
+        m+=[...new Set(fuera)].sort((a,b)=>a.localeCompare(b,'es')).join(', ')+`\n`;
+      }
+      return m;
+    }
+
+    function docPrecios(){
+      const zs=[{nombre:'CABA',mult:1}].concat(zonas.filter(z=>!z.esCABA).slice().sort((a,b)=>a.mult-b.mult).map(z=>({nombre:z.nombre,mult:z.mult})));
+      // Rastreros exterior = Rastreros + 25%, tabulado como un servicio mas para que el bot no multiplique
+      const ORDEN=["Rastreros","Rastreros exterior","Roedores","Voladores Interior","Voladores Exterior","Desinfección"];
+      const B=Object.assign({},BASE,{"Rastreros exterior":BASE["Rastreros"]*(1+RECARGOS["Rastreros exterior"]/100)});
+      const FR=[["sin ajuste",1],["17 a 20",1+RECARGOS["17 a 20"]/100],["20 a 22",1+RECARGOS["20 a 22"]/100],
+                ["22 a 01",1+RECARGOS["22 a 01"]/100],["sábado 9 a 12:30",1+RECARGOS["Sabado 9 a 12:30"]/100]];
+
+      let m=`# PRECIOS\n\nGenerado por mapa_poligonos.html el ${new Date().toISOString().slice(0,10)}.\n\n`;
+      m+=`**Este documento es interno.** Los números salen SOLO dentro del bloque \`[FICHA-ASESOR]\`. Nada de esto se le muestra al cliente.\n\n`;
+      m+=`**No hay IVA acá, y es a propósito.** Todo lo de abajo es sin IVA. Si el cliente pide Factura A, se anota el pedido en la ficha y el IVA lo aplica el asesor.\n\n---\n\n`;
+      m+=`## Cómo se arma\n\nCuatro búsquedas y **una sola suma**. No hay ninguna multiplicación ni división: si estás por hacer una cuenta que no sea sumar, estás en el camino equivocado.\n\n`;
+      m+=`1. **Zona** — buscá la localidad en ZONAS y anotá el nombre exacto.\n`;
+      m+=`2. **Servicio** — entrá a \`### ZONA: <esa zona>\` y después a \`#### <servicio> · <rango de m²>\`.\n`;
+      m+=`3. **Franja** — dentro de esa subsección hay 5 líneas, una por franja horaria. Copiá la que corresponda.\n`;
+      m+=`4. **Insumos** — en las tablas de abajo, los m² o los ambientes te dan la cantidad **y el importe** de una.\n`;
+      m+=`5. **Sumá** el servicio y los insumos. Eso es todo.\n\n`;
+      m+=`**Combo de dos servicios:** el mayor va con su importe pleno y el menor con el valor que dice \`para combo (40%)\` en su propia línea. Se suman los dos. Los insumos van plenos, sin descuento.\n\n`;
+      m+=`**Cada línea empieza con el nombre de la zona.** Si la línea que estás por copiar no empieza con la zona que te dio ZONAS, agarraste la línea equivocada.\n\n---\n\n`;
+
+      m+=`## Precio del servicio\n\n`;
+      for(const z of zs){
+        m+=`### ZONA: ${z.nombre}\n\nUsar esta sección **solo** si ZONAS dice **${z.nombre}**.\n\n`;
+        for(const s of ORDEN)
+          for(let i=0;i<3;i++){
+            m+=`#### ${s} · ${RANGOS[i]}\n\n`;
+            for(const [fn,fm] of FR){
+              const v=B[s]*Math.pow(1.25,i)*z.mult*fm;
+              m+=`- ${z.nombre} · ${fn} → **${money(v)}** · para combo (40%): ${money(v*0.40)}\n`;
+            }
+            m+=`\n`;
+          }
+      }
+      m+=`Más de 5000 m² → derivar. Domicilio en interior → siempre la subsección \`${RANGOS[0]}\`, no se preguntan m².\n\n---\n\n`;
+
+      m+=`## Insumos\n\n**Los insumos nunca llevan ajuste de franja ni de sábado.** Se suman al final, tal cual.\n\n`;
+      m+=`| Insumo | Precio unitario | Cuándo va |\n|---|---|---|\n`;
+      m+=`| Aerosol | ${money(INSUMOS["Aerosol"])} | 1 por ambiente. Pulgas, polillas de ropa, psocópteros, productos almacenados, y voladores en domicilio |\n`;
+      m+=`| Aerosol ahuyentador | ${money(INSUMOS["Aerosol ahuyentador"])} | 1, en murciélagos |\n`;
+      m+=`| Caja cebadera | ${money(INSUMOS["Caja cebadera"])} | Roedores. Obligatoria en rubro sensible y **siempre** en exterior |\n`;
+      m+=`| Bandeja de cebado | ${money(INSUMOS["Bandeja de cebado"])} | Roedores en rubro no sensible, solo interior. **Se lista siempre, no se cobra** |\n`;
+      m+=`| Trampa UV | ${money(INSUMOS["Trampa UV"])} | Voladores en gastronomía e industria alimenticia |\n\n`;
+
+      m+=`### Cajas cebaderas — m² del sector → cantidad e importe\n\n`;
+      m+=`El interior y el sector exterior se cuentan **por separado y se suman**. Los m² del exterior **nunca se restan** del interior. Cualquier sector exterior, por chico que sea, suma como mínimo una caja.\n\n`;
+      m+=`| m² del sector | Cajas | Importe |\n|---|---|---|\n`;
+      for(let k=1;k<=50;k++) m+=`| ${k===1?1:(k-1)*100+1} a ${k*100} | ${k} | ${money(k*INSUMOS["Caja cebadera"])} |\n`;
+      m+=`\nLa bandeja de cebado va en la misma cantidad que las cajas y su importe es siempre **$0**. Se lista igual.\n\n`;
+
+      m+=`### Aerosoles — ambientes → cantidad e importe\n\n`;
+      m+=`Pulgas, polillas de ropa, psocópteros y productos almacenados: ambientes **sin** contar la cocina. Voladores en domicilio: ambientes **contando** la cocina.\n\n`;
+      m+=`| Ambientes | Aerosoles | Importe |\n|---|---|---|\n`;
+      for(let k=1;k<=15;k++) m+=`| ${k} | ${k} | ${money(k*INSUMOS["Aerosol"])} |\n`;
+      m+=`\n### Trampas UV — m² → cantidad e importe\n\n| m² del sector | Trampas UV | Importe |\n|---|---|---|\n`;
+      for(let k=1;k<=40;k++) m+=`| ${k===1?1:(k-1)*25+1} a ${k*25} | ${k} | ${money(k*INSUMOS["Trampa UV"])} |\n`;
+      m+=`\n---\n\n`;
+
+      m+=`## Franjas horarias\n\nYa están adentro de cada línea de precio: **no se multiplica nada**, se elige la línea.\n\n`;
+      m+=`| Turno que se le comunica al cliente | Qué línea usar |\n|---|---|\n`;
+      m+=`| Día, 9:00 a 16:30 | \`sin ajuste\` |\n| 17:00 a 20:00 | \`17 a 20\` |\n| 20:00 a 22:00 | \`20 a 22\` |\n| 22:00 a 00:30 | \`22 a 01\` |\n| Sábado, 9:00 a 12:30 | \`sábado 9 a 12:30\` |\n\n`;
+      m+=`**Domingo no hay servicio.** No hay sábado a la tarde, y el sábado no se acumula con ninguna franja.\n\n`;
+      m+=`Si el cliente dice "lo antes posible", "cuando puedan", "indistinto" o da una ventana amplia que incluye el horario de día ("de 9 a 18"), va la línea **sin ajuste**.\n\n`;
+      m+=`El ajuste **se aplica, no se anuncia**: nunca se le nombra al cliente ni se le muestra el porcentaje.\n\n---\n\n`;
+
+      m+=`## IVA — no va acá\n\nTodo lo de arriba es **sin IVA**. El bot no lo calcula y no lo menciona.\n\n`;
+      m+=`Si el cliente pide **Factura A** o dice que paga por transferencia, se piden **razón social y CUIT o CUIL**, se anota el pedido en la ficha, y el IVA lo aplica el asesor cuando arma el presupuesto final.\n`;
+      return m;
+    }
+
+    function bajar(n,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/markdown'}));a.download=n;a.click();}
+    function exportarDocs(){
+      if(!zonas.length)return alert('Dibujá al menos una zona antes de exportar.');
+      bajar('ZONAS.md',docZonas());
+      setTimeout(()=>bajar('PRECIOS.md',docPrecios()),400);
+    }
+
+    // Init
+    try {
+      cargarLocal();
+      renderList();
+      renderRadios();
+      if(!EXTRA.length) armarLocalidades();
+      validar();
+      statOSM();
+    } catch(e) { fatal(e.message, 'Error al cargar las zonas guardadas. Probá con el botón Importar, o borrá el almacenamiento del navegador para esta página.'); }
+    </script>
+</body>
+</html>

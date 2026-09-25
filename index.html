@@ -1,0 +1,1546 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zonas de Servicio - Control de Plagas</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { box-sizing: border-box; margin: 0; }
+        body { font-family: system-ui, -apple-system, sans-serif; display: flex; height: 100vh; }
+
+        #sidebar {
+            width: 560px; min-width: 560px; background: #0f172a; color: #e2e8f0;
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+
+        .header {
+            padding: 14px 20px; background: #1e293b;
+            border-bottom: 1px solid #334155;
+        }
+        .header h1 { font-size: 17px; font-weight: 700; color: #f8fafc; }
+        .header p { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+        .scroll-area { flex: 1; overflow-y: auto; }
+
+        /* --- Search --- */
+        .search { padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155; }
+        .search input {
+            width: 100%; padding: 10px 14px; border: 1px solid #334155; border-radius: 8px;
+            background: #0f172a; color: #e2e8f0; font-size: 14px; outline: none;
+        }
+        .search input:focus { border-color: #3b82f6; }
+        .search input::placeholder { color: #475569; }
+
+        /* --- Result --- */
+        #result {
+            padding: 14px 20px; background: #1e293b; border-bottom: 1px solid #334155;
+            min-height: 44px; font-size: 13px; color: #94a3b8;
+        }
+        #result.found { background: #172554; }
+        .result-address { color: #94a3b8; font-size: 12px; margin-bottom: 6px; }
+        .result-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .result-zona-badge {
+            padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 13px;
+        }
+        .result-dist { color: #64748b; font-size: 12px; }
+        .result-aumento { font-size: 11px; color: #94a3b8; }
+        .result-precios-grid {
+            display: grid; grid-template-columns: auto 1fr 1fr 1fr;
+            gap: 2px 12px; margin-top: 10px; font-size: 11px;
+        }
+        .result-precios-grid .rh { color: #64748b; font-weight: 600; text-align: right; font-size: 10px; }
+        .result-precios-grid .sl { color: #94a3b8; }
+        .result-precios-grid .pv { text-align: right; font-weight: 600; }
+        .derivar-alert {
+            margin-top: 10px; padding: 8px 12px; background: #7f1d1d; border: 1px solid #ef4444;
+            border-radius: 6px; color: #fca5a5; font-size: 12px; font-weight: 600;
+        }
+
+        /* --- Range selector --- */
+        .rango-selector {
+            padding: 10px 20px; background: #0f172a; border-bottom: 1px solid #1e293b;
+            display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+        }
+        .rango-selector label { font-size: 11px; color: #64748b; margin-right: 4px; }
+        .rango-btn {
+            padding: 5px 12px; border: 1px solid #334155; border-radius: 6px;
+            background: #0f172a; color: #94a3b8; font-size: 11px; cursor: pointer;
+            transition: all .2s; font-weight: 500;
+        }
+        .rango-btn.active { background: #3b82f6; color: white; border-color: #3b82f6; }
+        .rango-btn.derivar { background: #7f1d1d; color: #fca5a5; border-color: #ef4444; }
+
+        /* --- Section headers --- */
+        .section-header {
+            padding: 10px 20px; background: #0f172a; border-bottom: 1px solid #1e293b;
+            font-size: 11px; color: #3b82f6; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 1px; display: flex; justify-content: space-between; align-items: center;
+        }
+
+        /* --- Zone config --- */
+        .zone-config {
+            padding: 10px 20px; background: #0f172a; border-bottom: 1px solid #1e293b;
+        }
+        .zone-config-row {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 12px;
+        }
+        .zone-config-row .zc-label {
+            width: 120px; display: flex; align-items: center; gap: 6px; font-weight: 600;
+        }
+        .zone-config-row .zc-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .zone-config-row input[type="range"] { flex: 1; accent-color: #3b82f6; }
+        .zone-config-row .zc-value {
+            width: 55px; text-align: right; font-variant-numeric: tabular-nums; color: #94a3b8;
+        }
+
+        /* --- Polygon controls --- */
+        .polygon-controls { display: none; }
+        .btn-sm {
+            padding: 4px 10px; border: 1px solid #334155; border-radius: 5px;
+            background: #1e293b; color: #94a3b8; font-size: 11px; cursor: pointer;
+            transition: all .2s; font-weight: 500;
+        }
+        .btn-sm:hover { border-color: #3b82f6; color: #e2e8f0; }
+        .btn-sm.active { background: #22c55e; color: white; border-color: #22c55e; }
+        .btn-sm.drawing { background: #f97316; color: white; border-color: #f97316; }
+        .btn-sm.danger { border-color: #ef4444; color: #fca5a5; }
+        .btn-sm.danger:hover { background: #7f1d1d; }
+        .btn-sm.save { border-color: #22c55e; color: #86efac; }
+        .btn-sm.save:hover { background: #14532d; }
+        .polygon-status {
+            font-size: 10px; color: #64748b; margin-top: 2px; line-height: 1.3;
+        }
+        .polygon-status.saved { color: #22c55e; }
+        .polygon-status.editing { color: #f97316; }
+        .polygon-status.drawing { color: #eab308; }
+
+        /* Vertex markers on map */
+        .vertex-marker {
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #22c55e; border: 2px solid white;
+            box-shadow: 0 0 4px rgba(0,0,0,0.5);
+            cursor: grab;
+        }
+        .vertex-marker:hover { background: #16a34a; transform: scale(1.3); }
+        .vertex-marker-draw {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #f97316; border: 2px solid white;
+            box-shadow: 0 0 4px rgba(0,0,0,0.5);
+        }
+
+        /* --- Price table --- */
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        thead th {
+            position: sticky; top: 0; background: #1e293b; color: #64748b;
+            padding: 8px 6px; text-align: right; font-weight: 600; font-size: 10px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            border-bottom: 2px solid #334155;
+        }
+        thead th:first-child { text-align: left; padding-left: 14px; }
+        tbody tr { border-bottom: 1px solid #1e293b; transition: background .15s; }
+        tbody tr:hover { background: #1e293b; }
+        tbody tr.active { background: #172554; outline: 2px solid #3b82f6; outline-offset: -2px; }
+        td { padding: 8px 6px; text-align: right; }
+        td:first-child { text-align: left; padding-left: 14px; }
+        .zona-badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12px; }
+        .zona-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .zona-radio { color: #475569; font-weight: 400; font-size: 10px; }
+        td.precio { font-variant-numeric: tabular-nums; font-weight: 500; font-size: 11px; }
+
+        /* --- Calculator --- */
+        .calc-section {
+            padding: 14px 20px; background: #0f172a; border-bottom: 1px solid #1e293b;
+        }
+        .calc-row {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px;
+        }
+        .calc-row label { width: 110px; color: #94a3b8; font-size: 12px; }
+        .calc-row select, .calc-row input[type="number"] {
+            flex: 1; padding: 6px 10px; border: 1px solid #334155; border-radius: 6px;
+            background: #1e293b; color: #e2e8f0; font-size: 12px; outline: none;
+        }
+        .calc-row select:focus, .calc-row input[type="number"]:focus { border-color: #3b82f6; }
+        .calc-row .calc-sub { width: 90px; text-align: right; color: #64748b; font-size: 11px; font-variant-numeric: tabular-nums; }
+
+        .calc-total {
+            margin-top: 10px; padding: 12px; background: #172554; border-radius: 8px;
+            border: 1px solid #1e3a5f;
+        }
+        .calc-total-row {
+            display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8;
+            margin-bottom: 4px;
+        }
+        .calc-total-row.main {
+            font-size: 16px; font-weight: 700; color: #f8fafc;
+            margin-top: 6px; padding-top: 8px; border-top: 1px solid #334155;
+        }
+        .calc-total-row.iva { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+        /* --- Client response --- */
+        .response-section {
+            padding: 14px 20px; background: #0f172a; border-bottom: 1px solid #1e293b;
+        }
+        .response-area {
+            width: 100%; min-height: 160px; padding: 12px; border: 1px solid #334155;
+            border-radius: 8px; background: #1e293b; color: #e2e8f0; font-size: 12px;
+            font-family: system-ui; resize: vertical; line-height: 1.5;
+        }
+        .response-actions {
+            display: flex; gap: 8px; margin-top: 8px;
+        }
+        .btn {
+            padding: 8px 16px; border: none; border-radius: 6px; font-size: 12px;
+            font-weight: 600; cursor: pointer; transition: all .2s;
+        }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-copy { background: #22c55e; color: white; }
+        .btn-copy:hover { background: #16a34a; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .copy-feedback {
+            font-size: 11px; color: #22c55e; align-self: center; display: none;
+        }
+
+        /* --- Consultas rapidas --- */
+        .consultas-section {
+            padding: 14px 20px; background: #0f172a; border-bottom: 1px solid #1e293b;
+        }
+        .modo-toggle {
+            display: flex; gap: 0; margin-bottom: 10px; border-radius: 6px; overflow: hidden;
+            border: 1px solid #334155;
+        }
+        .modo-btn {
+            flex: 1; padding: 6px 12px; border: none; font-size: 11px; font-weight: 600;
+            cursor: pointer; transition: all .2s; text-align: center;
+        }
+        .modo-btn.modo-cliente {
+            background: #0f172a; color: #94a3b8;
+        }
+        .modo-btn.modo-cliente.active {
+            background: #22c55e; color: white;
+        }
+        .modo-btn.modo-vendedor {
+            background: #0f172a; color: #94a3b8;
+        }
+        .modo-btn.modo-vendedor.active {
+            background: #f97316; color: white;
+        }
+        .consulta-tabs {
+            display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;
+        }
+        .consulta-tab {
+            padding: 5px 12px; border: 1px solid #334155; border-radius: 6px;
+            background: #0f172a; color: #94a3b8; font-size: 11px; cursor: pointer;
+            transition: all .2s; font-weight: 500;
+        }
+        .consulta-tab:hover { border-color: #3b82f6; color: #e2e8f0; }
+        .consulta-tab.active { background: #3b82f6; color: white; border-color: #3b82f6; }
+        .consulta-area {
+            width: 100%; min-height: 120px; padding: 12px; border: 1px solid #334155;
+            border-radius: 8px; background: #1e293b; color: #e2e8f0; font-size: 12px;
+            font-family: system-ui; resize: vertical; line-height: 1.5;
+        }
+        .consulta-hint {
+            font-size: 10px; color: #475569; margin-top: 4px; font-style: italic;
+        }
+
+        /* --- Footer --- */
+        .footer {
+            padding: 10px 20px; background: #1e293b; border-top: 1px solid #334155;
+            font-size: 10px; color: #475569; text-align: center;
+        }
+
+        #map-container { flex: 1; position: relative; overflow: hidden; }
+        #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+
+        #map-toolbar {
+            position: absolute; top: 10px; right: 10px; z-index: 1000;
+            display: flex; flex-direction: column; gap: 4px;
+            background: rgba(15, 23, 42, 0.92); padding: 10px;
+            border-radius: 8px; border: 1px solid #334155;
+            min-width: 150px;
+        }
+        .toolbar-header {
+            font-size: 10px; color: #3b82f6; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px;
+        }
+        .toolbar-btn {
+            padding: 6px 10px; border: 1px solid #334155; border-radius: 5px;
+            background: #1e293b; color: #94a3b8; font-size: 11px; cursor: pointer;
+            transition: all .2s; font-weight: 500; text-align: left; white-space: nowrap;
+        }
+        .toolbar-btn:hover { border-color: #3b82f6; color: #e2e8f0; }
+        .toolbar-btn.active { background: #22c55e; color: white; border-color: #22c55e; }
+        .toolbar-btn.drawing { background: #f97316; color: white; border-color: #f97316; }
+        .toolbar-btn.finish { background: #eab308; color: #000; border-color: #eab308; }
+        .toolbar-btn.save { border-color: #22c55e; color: #86efac; }
+        .toolbar-btn.save:hover { background: #14532d; }
+        .toolbar-btn.export { border-color: #a78bfa; color: #c4b5fd; }
+        .toolbar-btn.export:hover { background: #2e1065; }
+        .toolbar-btn.danger { border-color: #ef4444; color: #fca5a5; }
+        .toolbar-btn.danger:hover { background: #7f1d1d; }
+        .toolbar-sep { border: none; border-top: 1px solid #334155; margin: 2px 0; }
+
+        /* Scrollbar styling */
+        .scroll-area::-webkit-scrollbar { width: 6px; }
+        .scroll-area::-webkit-scrollbar-track { background: #0f172a; }
+        .scroll-area::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div class="header">
+            <h1>Zonas de Servicio</h1>
+            <p>CABA (poligono editable) + circulos por distancia al centro</p>
+        </div>
+
+        <div class="scroll-area">
+            <!-- Search -->
+            <div class="search">
+                <input type="text" id="address" placeholder="Ingresa una direccion y presiona Enter..." />
+            </div>
+
+            <div id="result">Busca una direccion para ver zona y precios</div>
+
+            <!-- Surface range -->
+            <div class="rango-selector">
+                <label>Superficie:</label>
+                <button class="rango-btn active" data-rango="0">Hasta 1000m2</button>
+                <button class="rango-btn" data-rango="1">1000-3000m2</button>
+                <button class="rango-btn" data-rango="2">3000-5000m2</button>
+                <button class="rango-btn derivar" data-rango="-1">>5000m2 DERIVAR</button>
+            </div>
+
+            <!-- Zone config -->
+            <div class="section-header">
+                <span>Configuracion de zonas</span>
+                <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#475569">km desde centro</span>
+            </div>
+            <div class="zone-config" id="zone-config"></div>
+
+            <!-- Price table -->
+            <div class="section-header">Tabla de precios</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Zona</th>
+                        <th>Rastreros</th>
+                        <th>Rast.Ext.</th>
+                        <th>Roedores</th>
+                        <th>Vol.Int.</th>
+                        <th>Vol.Ext.</th>
+                        <th>Desinf.</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-body"></tbody>
+            </table>
+
+            <!-- Calculator -->
+            <div class="section-header">Calculadora rapida</div>
+            <div class="calc-section">
+                <div class="calc-row">
+                    <label>Servicio:</label>
+                    <select id="calc-servicio">
+                        <option value="0">Rastreros</option>
+                        <option value="1">Rastreros exterior</option>
+                        <option value="2">Roedores</option>
+                        <option value="3">Voladores Int.</option>
+                        <option value="4">Voladores Ext.</option>
+                        <option value="5">Desinfeccion</option>
+                    </select>
+                </div>
+                <div class="calc-row">
+                    <label>Combo con:</label>
+                    <select id="calc-combo">
+                        <option value="-1">Ninguno</option>
+                        <option value="0">Rastreros</option>
+                        <option value="1">Rastreros exterior</option>
+                        <option value="2">Roedores</option>
+                        <option value="3">Voladores Int.</option>
+                        <option value="4">Voladores Ext.</option>
+                        <option value="5">Desinfeccion</option>
+                    </select>
+                </div>
+                <div class="calc-row">
+                    <label>Plaga (cliente):</label>
+                    <select id="calc-plaga">
+                        <option value="Pulgas">Pulgas</option>
+                        <option value="Garrapatas">Garrapatas</option>
+                        <option value="Chinches">Chinches</option>
+                        <option value="Cucarachas">Cucarachas</option>
+                        <option value="Hormigas">Hormigas</option>
+                        <option value="Aranas">Aranas</option>
+                        <option value="Mosquitos">Mosquitos / Voladores</option>
+                        <option value="Roedores">Roedores</option>
+                        <option value="Desinfeccion">Desinfeccion</option>
+                        <option value="Preventivo">Control preventivo</option>
+                    </select>
+                </div>
+
+                <div style="margin: 10px 0 6px; font-size: 11px; color: #3b82f6; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Insumos</div>
+
+                <div class="calc-row">
+                    <label>Aerosoles:</label>
+                    <input type="number" id="calc-aerosoles" min="0" value="0" style="width:60px;flex:none" />
+                    <span class="calc-sub">x $7.000</span>
+                    <span class="calc-sub" id="sub-aerosoles">= $0</span>
+                </div>
+                <div class="calc-row">
+                    <label>Aerosol ahuy.:</label>
+                    <input type="number" id="calc-ahuyentador" min="0" value="0" style="width:60px;flex:none" />
+                    <span class="calc-sub">x $15.000</span>
+                    <span class="calc-sub" id="sub-ahuyentador">= $0</span>
+                </div>
+                <div class="calc-row">
+                    <label>Cajas cebad.:</label>
+                    <input type="number" id="calc-cajas" min="0" value="0" style="width:60px;flex:none" />
+                    <span class="calc-sub">x $7.500</span>
+                    <span class="calc-sub" id="sub-cajas">= $0</span>
+                </div>
+                <div class="calc-row">
+                    <label>Bandejas ceb.:</label>
+                    <input type="number" id="calc-bandejas" min="0" value="0" style="width:60px;flex:none" />
+                    <span class="calc-sub">x $0</span>
+                    <span class="calc-sub" id="sub-bandejas">= $0</span>
+                </div>
+                <div class="calc-row">
+                    <label>Trampas UV:</label>
+                    <input type="number" id="calc-trampas" min="0" value="0" style="width:60px;flex:none" />
+                    <span class="calc-sub">x $120.000</span>
+                    <span class="calc-sub" id="sub-trampas">= $0</span>
+                </div>
+
+                <div style="margin: 10px 0 6px; font-size: 11px; color: #3b82f6; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Horario</div>
+
+                <div class="calc-row">
+                    <label>Franja:</label>
+                    <select id="calc-horario">
+                        <option value="0">Dia 9:00 a 16:30 (sin ajuste)</option>
+                        <option value="0.20">17:00 a 20:00 (+20%)</option>
+                        <option value="0.35">20:00 a 22:00 (+35%)</option>
+                        <option value="0.50">22:00 a 00:30 (+50%)</option>
+                        <option value="0.20">Sabado 9:00 a 12:30 (+20%)</option>
+                    </select>
+                </div>
+
+                <div class="calc-total" id="calc-total">
+                    <div class="calc-total-row">
+                        <span>Servicio base:</span>
+                        <span id="ct-servicio">-</span>
+                    </div>
+                    <div class="calc-total-row" id="ct-combo-row" style="display:none">
+                        <span id="ct-combo-label">Combo (40%):</span>
+                        <span id="ct-combo">$0</span>
+                    </div>
+                    <div class="calc-total-row">
+                        <span>Insumos:</span>
+                        <span id="ct-insumos">$0</span>
+                    </div>
+                    <div class="calc-total-row" id="ct-recargo-row" style="display:none">
+                        <span id="ct-recargo-label">Recargo:</span>
+                        <span id="ct-recargo">$0</span>
+                    </div>
+                    <div class="calc-total-row main">
+                        <span>TOTAL:</span>
+                        <span id="ct-total">-</span>
+                    </div>
+                    <div class="calc-total-row iva">
+                        <span>Ref. asesor con IVA (Fact. A / transf.):</span>
+                        <span id="ct-iva">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Client response -->
+            <div class="section-header">Respuesta para el cliente (cotizacion)</div>
+            <div class="response-section">
+                <div class="calc-row">
+                    <label>Nombre:</label>
+                    <input type="text" id="resp-nombre" placeholder="(opcional)" style="flex:1;padding:6px 10px;border:1px solid #334155;border-radius:6px;background:#1e293b;color:#e2e8f0;font-size:12px;outline:none" />
+                </div>
+                <div class="calc-row">
+                    <label>Notas extra:</label>
+                    <input type="text" id="resp-notas" placeholder="Ej: mascotas tratar 24hs antes" style="flex:1;padding:6px 10px;border:1px solid #334155;border-radius:6px;background:#1e293b;color:#e2e8f0;font-size:12px;outline:none" />
+                </div>
+                <div class="response-actions" style="margin-bottom:8px">
+                    <button class="btn btn-primary" id="btn-generar" onclick="generarRespuesta()">Generar respuesta</button>
+                </div>
+                <div class="consulta-hint" style="color:#22c55e">Mensaje para el cliente (WhatsApp)</div>
+                <textarea class="response-area" id="resp-text" readonly placeholder="Busca una direccion y completa la calculadora para generar la respuesta..."></textarea>
+                <div class="response-actions">
+                    <button class="btn btn-copy" id="btn-copiar" onclick="copiarTexto('resp-text', 'copy-feedback')" disabled>Copiar al portapapeles</button>
+                    <span class="copy-feedback" id="copy-feedback">Copiado!</span>
+                </div>
+                <div class="consulta-hint" style="color:#f97316;margin-top:10px">[FICHA-ASESOR] Interna - NO enviar al cliente</div>
+                <textarea class="response-area" id="ficha-text" readonly placeholder="La ficha interna se genera junto con la respuesta..."></textarea>
+                <div class="response-actions">
+                    <button class="btn btn-copy" id="btn-copiar-ficha" onclick="copiarTexto('ficha-text', 'copy-feedback-ficha')" disabled>Copiar al portapapeles</button>
+                    <span class="copy-feedback" id="copy-feedback-ficha">Copiado!</span>
+                </div>
+            </div>
+
+            <!-- Consultas rapidas -->
+            <div class="section-header">Consultas rapidas</div>
+            <div class="consultas-section">
+                <div class="modo-toggle">
+                    <button class="modo-btn modo-cliente active" onclick="setModoConsulta('cliente')">Para el cliente</button>
+                    <button class="modo-btn modo-vendedor" onclick="setModoConsulta('vendedor')">Nota vendedor</button>
+                </div>
+                <div class="consulta-tabs">
+                    <button class="consulta-tab" data-tema="mascotas" onclick="generarConsulta('mascotas')">Mascotas</button>
+                    <button class="consulta-tab" data-tema="pisos" onclick="generarConsulta('pisos')">Pisos</button>
+                    <button class="consulta-tab" data-tema="horarios" onclick="generarConsulta('horarios')">Dias / Horarios</button>
+                    <button class="consulta-tab" data-tema="postservicio" onclick="generarConsulta('postservicio')">Post-servicio</button>
+                </div>
+                <textarea class="consulta-area" id="consulta-text" readonly placeholder="Selecciona un tema para generar la respuesta..."></textarea>
+                <div class="consulta-hint" id="consulta-hint"></div>
+                <div class="response-actions">
+                    <button class="btn btn-copy" id="btn-copiar-consulta" onclick="copiarTexto('consulta-text', 'copy-feedback-consulta')" disabled>Copiar al portapapeles</button>
+                    <span class="copy-feedback" id="copy-feedback-consulta">Copiado!</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            Zona base = CABA (poligono editable) | Distancias desde centro | >5000m2 derivar a Lucas | v3.0 Sep 2026 (PRECIOS.md 24/09)
+        </div>
+    </div>
+
+    <div id="map-container">
+        <div id="map"></div>
+        <div id="map-toolbar">
+            <div class="toolbar-header">Poligono CABA</div>
+            <button class="toolbar-btn" id="btn-edit-polygon" onclick="toggleEditMode()">Editar vertices</button>
+            <button class="toolbar-btn" id="btn-draw-polygon" onclick="toggleDrawMode()">Dibujar nuevo</button>
+            <button class="toolbar-btn finish" id="btn-finish-draw" onclick="finishDraw()" style="display:none">Terminar dibujo</button>
+            <hr class="toolbar-sep">
+            <button class="toolbar-btn save" id="btn-save-polygon" onclick="savePolygon()" style="display:none">Guardar</button>
+            <button class="toolbar-btn export" id="btn-export-polygon" onclick="exportPolygon()">Exportar coords</button>
+            <button class="toolbar-btn danger" id="btn-reset-polygon" onclick="resetPolygon()" style="display:none">Reset original</button>
+            <div class="polygon-status" id="polygon-status"></div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+    // ================================================================
+    // POLIGONO REAL DE CABA (editable)
+    // Limites: Av. Gral Paz (oeste), Riachuelo (sur), Rio de la Plata (este/norte)
+    // ================================================================
+
+    const CABA_ORIGINAL = [
+        [-34.5346, -58.4655], [-34.5276, -58.4513], [-34.5240, -58.4370],
+        [-34.5295, -58.4230], [-34.5370, -58.4100], [-34.5445, -58.4000],
+        [-34.5530, -58.3900], [-34.5570, -58.3800],
+        [-34.5610, -58.3720], [-34.5700, -58.3660], [-34.5790, -58.3610],
+        [-34.5880, -58.3575], [-34.5932, -58.3457], [-34.6016, -58.3410],
+        [-34.6098, -58.3365], [-34.6248, -58.3347],
+        [-34.6338, -58.3493], [-34.6391, -58.3571],
+        [-34.6404, -58.3588], [-34.6446, -58.3565], [-34.6473, -58.3606],
+        [-34.6516, -58.3692], [-34.6537, -58.3693], [-34.6574, -58.3742],
+        [-34.6583, -58.3845], [-34.6631, -58.3932], [-34.6597, -58.4035],
+        [-34.6605, -58.4068], [-34.6590, -58.4120], [-34.6594, -58.4160],
+        [-34.6628, -58.4249], [-34.7050, -58.4608],
+        [-34.6963, -58.4725], [-34.6900, -58.4810], [-34.6826, -58.4916],
+        [-34.6676, -58.5108], [-34.6554, -58.5270], [-34.6533, -58.5287],
+        [-34.6325, -58.5300], [-34.6157, -58.5310], [-34.6003, -58.5236],
+        [-34.5862, -58.5175], [-34.5680, -58.5085], [-34.5576, -58.5039],
+        [-34.5497, -58.4999], [-34.5464, -58.4927], [-34.5406, -58.4799],
+        [-34.5354, -58.4674],
+    ];
+
+    // CABA mutable - se puede editar y guardar
+    let CABA = CABA_ORIGINAL.map(p => [...p]);
+
+    // Centro geometrico de CABA
+    // Centro de los circulos: Obelisco. Con radios 20/30/40/69 km reproduce ZONAS.md
+    // (calibrado 25/09/2026: 238 de 241 localidades coinciden)
+    const CABA_CENTER = { lat: -34.6037, lng: -58.3816 };
+
+    // ================================================================
+    // CONFIGURACION DE ZONAS
+    // ================================================================
+
+    const COLORES = ["#22c55e", "#3b82f6", "#eab308", "#f97316", "#ef4444"];
+
+    let ZONAS = [
+        { nombre: "Muy Cercano",     radio: 0,  aumento: 0.00, label: "CABA" },
+        { nombre: "Cercano",         radio: 20, aumento: 0.10, label: "Hasta 20km" },
+        { nombre: "Media Distancia", radio: 30, aumento: 0.25, label: "20-30km" },
+        { nombre: "Lejano",          radio: 40, aumento: 0.35, label: "30-40km" },
+        { nombre: "Muy Lejano",      radio: 69, aumento: 0.50, label: "40-69km" },
+    ];
+
+    const SERVICIOS = [
+        { key: "rastreros",     label: "Rastreros",  base: 50000 },
+        { key: "rastreros_ext", label: "Rast.Ext.",  base: 62500 },
+        { key: "roedores",      label: "Roedores",   base: 62500 },
+        { key: "voladores_int", label: "Vol.Int.",    base: 78125 },
+        { key: "voladores_ext", label: "Vol.Ext.",    base: 97656 },
+        { key: "desinfeccion",  label: "Desinf.",     base: 78125 },
+    ];
+
+    const INCREMENTO_M2 = 0.25;
+    const RANGOS = ["Hasta 1000m2", "1000-3000m2", "3000-5000m2"];
+    const INSUMO_PRECIOS = { aerosol: 7000, ahuyentador: 15000, caja: 7500, bandeja: 0, trampa: 120000 };
+    const COMBO_MENOR = 0.40;
+
+    let rangoActual = 0;
+    let zonaActual = null;
+
+    // ================================================================
+    // POLYGON EDITING STATE
+    // ================================================================
+
+    let editMode = false;
+    let drawMode = false;
+    let vertexMarkers = [];
+    let drawPoints = [];
+    let drawMarkers = [];
+    let drawPreviewLine = null;
+
+    // ================================================================
+    // CONSULTAS STATE
+    // ================================================================
+
+    let modoConsulta = 'cliente'; // 'cliente' o 'vendedor'
+
+    // ================================================================
+    // GEOMETRIA
+    // ================================================================
+
+    function distKm(lat1, lng1, lat2, lng2) {
+        const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function puntoEnPoligono(lat, lng, polygon) {
+        let dentro = false, j = polygon.length - 1;
+        for (let i = 0; i < polygon.length; i++) {
+            const [yi, xi] = polygon[i], [yj, xj] = polygon[j];
+            if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)
+                dentro = !dentro;
+            j = i;
+        }
+        return dentro;
+    }
+
+    function buscarZona(lat, lng) {
+        if (puntoEnPoligono(lat, lng, CABA)) {
+            return { zona: ZONAS[0], dist: 0, idx: 0, dentroCABA: true };
+        }
+
+        const dist = distKm(lat, lng, CABA_CENTER.lat, CABA_CENTER.lng);
+
+        for (let i = 1; i < ZONAS.length; i++) {
+            if (dist <= ZONAS[i].radio) {
+                return { zona: ZONAS[i], dist, idx: i, dentroCABA: false };
+            }
+        }
+
+        return { zona: null, dist, idx: -1, dentroCABA: false };
+    }
+
+    // ================================================================
+    // PRECIOS
+    // ================================================================
+
+    function precioExacto(servicioBase, zonaIdx, rangoIdx, franja = 0) {
+        const aumento = ZONAS[zonaIdx].aumento;
+        return servicioBase * Math.pow(1 + INCREMENTO_M2, rangoIdx) * (1 + aumento) * (1 + franja);
+    }
+
+    function calcPrecio(servicioBase, zonaIdx, rangoIdx, franja = 0) {
+        return Math.round(precioExacto(servicioBase, zonaIdx, rangoIdx, franja));
+    }
+
+    // Valor "para combo (40%)" de PRECIOS.md: se redondea despues de aplicar el 40%
+    function calcCombo(servicioBase, zonaIdx, rangoIdx, franja = 0) {
+        return Math.round(precioExacto(servicioBase, zonaIdx, rangoIdx, franja) * COMBO_MENOR);
+    }
+
+    // Servicio (+ combo) e insumos segun PRECIOS.md: la franja solo afecta al servicio,
+    // en combo el mayor va pleno y el menor al 40%, los insumos se suman sin ajuste.
+    function cotizar() {
+        const val = id => parseInt(document.getElementById(id).value) || 0;
+        const sIdx = val('calc-servicio');
+        const cIdx = parseInt(document.getElementById('calc-combo').value);
+        const franja = parseFloat(document.getElementById('calc-horario').value) || 0;
+        const franjaSel = document.getElementById('calc-horario').selectedOptions[0].text;
+
+        const insumos = {
+            aerosoles: val('calc-aerosoles'), ahuyentador: val('calc-ahuyentador'),
+            cajas: val('calc-cajas'), bandejas: val('calc-bandejas'), trampas: val('calc-trampas'),
+        };
+        const sub = {
+            aerosoles: insumos.aerosoles * INSUMO_PRECIOS.aerosol,
+            ahuyentador: insumos.ahuyentador * INSUMO_PRECIOS.ahuyentador,
+            cajas: insumos.cajas * INSUMO_PRECIOS.caja,
+            bandejas: insumos.bandejas * INSUMO_PRECIOS.bandeja,
+            trampas: insumos.trampas * INSUMO_PRECIOS.trampa,
+        };
+        const totalInsumos = Object.values(sub).reduce((a, b) => a + b, 0);
+
+        const q = { sIdx, cIdx, franja, franjaSel, insumos, sub, totalInsumos, valida: !!(zonaActual && zonaActual.idx >= 0) };
+        if (!q.valida) return q;
+
+        const idx = zonaActual.idx;
+        let principal = { i: sIdx, sinAjuste: calcPrecio(SERVICIOS[sIdx].base, idx, rangoActual), conFranja: calcPrecio(SERVICIOS[sIdx].base, idx, rangoActual, franja) };
+        let combo = null;
+        if (cIdx >= 0 && cIdx !== sIdx) {
+            combo = { i: cIdx, sinAjuste: calcPrecio(SERVICIOS[cIdx].base, idx, rangoActual), conFranja: calcPrecio(SERVICIOS[cIdx].base, idx, rangoActual, franja) };
+            if (combo.conFranja > principal.conFranja) [principal, combo] = [combo, principal];
+            combo.importe = calcCombo(SERVICIOS[combo.i].base, idx, rangoActual, franja);
+            combo.importeSinAjuste = calcCombo(SERVICIOS[combo.i].base, idx, rangoActual);
+        }
+        const servicio = principal.conFranja + (combo ? combo.importe : 0);
+        const servicioSinAjuste = principal.sinAjuste + (combo ? combo.importeSinAjuste : 0);
+        const total = servicio + totalInsumos;
+        return Object.assign(q, { principal, combo, servicio, recargo: servicio - servicioSinAjuste, servicioSinAjuste, total, conIva: Math.round(total * 1.21) });
+    }
+
+    function fmt(n) {
+        return '$' + n.toLocaleString('es-AR');
+    }
+
+    // ================================================================
+    // MAPA
+    // ================================================================
+
+    const map = L.map('map').setView([CABA_CENTER.lat, CABA_CENTER.lng], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    let circuloLayers = [];
+    let cabaLayer = null;
+    let searchMarker = null;
+
+    function dibujarZonas() {
+        circuloLayers.forEach(l => map.removeLayer(l));
+        circuloLayers = [];
+        if (cabaLayer) map.removeLayer(cabaLayer);
+
+        // Circulos desde el mas grande al mas chico
+        for (let i = ZONAS.length - 1; i >= 1; i--) {
+            const color = COLORES[i];
+            const z = ZONAS[i];
+            const c = L.circle([CABA_CENTER.lat, CABA_CENTER.lng], {
+                radius: z.radio * 1000,
+                color, fillColor: color, fillOpacity: 0.04, weight: 1.5,
+                dashArray: '8,6',
+            }).addTo(map);
+
+            const preciosText = SERVICIOS.map(s =>
+                `${s.label}: ${fmt(calcPrecio(s.base, i, rangoActual))}`
+            ).join('<br>');
+            const aumentoText = `+${Math.round(z.aumento * 100)}%`;
+            c.bindTooltip(
+                `<b>${z.nombre}</b> (${z.label})<br>Aumento: ${aumentoText}<br><br>${RANGOS[rangoActual]}<br>${preciosText}`,
+                { sticky: true }
+            );
+            circuloLayers.push(c);
+        }
+
+        // Poligono CABA encima de todo
+        cabaLayer = L.polygon(CABA, {
+            color: COLORES[0], fillColor: COLORES[0], fillOpacity: 0.15, weight: 3,
+        }).addTo(map);
+
+        const preciosCABA = SERVICIOS.map(s =>
+            `${s.label}: ${fmt(calcPrecio(s.base, 0, rangoActual))}`
+        ).join('<br>');
+        cabaLayer.bindTooltip(
+            `<b>Muy Cercano - CABA</b><br>Aumento: BASE (0%)<br><br>${RANGOS[rangoActual]}<br>${preciosCABA}`,
+            { sticky: true }
+        );
+    }
+
+    // ================================================================
+    // POLYGON EDITING
+    // ================================================================
+
+    function loadSavedPolygon() {
+        try {
+            const saved = localStorage.getItem('caba_polygon');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length >= 3) {
+                    CABA.length = 0;
+                    parsed.forEach(p => CABA.push([p[0], p[1]]));
+                    updatePolygonStatus('saved', 'Poligono guardado cargado');
+                }
+            }
+        } catch(e) { /* usar default */ }
+    }
+
+    function savePolygon() {
+        localStorage.setItem('caba_polygon', JSON.stringify(CABA));
+        updatePolygonStatus('saved', 'Guardado OK');
+        setTimeout(() => updatePolygonStatus('', ''), 3000);
+    }
+
+    function resetPolygon() {
+        if (!confirm('Restaurar el poligono original de CABA? Se pierden los cambios guardados.')) return;
+        localStorage.removeItem('caba_polygon');
+        CABA.length = 0;
+        CABA_ORIGINAL.forEach(p => CABA.push([...p]));
+        if (editMode) {
+            hideVertexMarkers();
+            showVertexMarkers();
+        }
+        dibujarZonas();
+        updatePolygonStatus('', 'Poligono restaurado');
+        setTimeout(() => updatePolygonStatus('', ''), 2000);
+    }
+
+    function updatePolygonStatus(cls, text) {
+        const el = document.getElementById('polygon-status');
+        if (el) {
+            el.className = 'polygon-status' + (cls ? ' ' + cls : '');
+            el.textContent = text;
+        }
+    }
+
+    function toggleEditMode() {
+        if (drawMode) stopDrawMode();
+        editMode = !editMode;
+
+        const btn = document.getElementById('btn-edit-polygon');
+        const saveBtn = document.getElementById('btn-save-polygon');
+        const resetBtn = document.getElementById('btn-reset-polygon');
+
+        if (editMode) {
+            showVertexMarkers();
+            btn.textContent = 'Dejar de editar';
+            btn.classList.add('active');
+            saveBtn.style.display = 'inline-block';
+            resetBtn.style.display = 'inline-block';
+            updatePolygonStatus('editing', 'Arrastra los vertices');
+            map.setView([CABA_CENTER.lat, CABA_CENTER.lng], 12);
+        } else {
+            hideVertexMarkers();
+            btn.textContent = 'Editar vertices';
+            btn.classList.remove('active');
+            saveBtn.style.display = 'none';
+            resetBtn.style.display = 'none';
+            updatePolygonStatus('', '');
+        }
+    }
+
+    function showVertexMarkers() {
+        hideVertexMarkers();
+        const icon = L.divIcon({ className: 'vertex-marker', iconSize: [12, 12], iconAnchor: [6, 6] });
+
+        CABA.forEach((point, i) => {
+            const marker = L.marker([point[0], point[1]], { icon, draggable: true }).addTo(map);
+
+            marker.on('drag', (e) => {
+                const pos = e.target.getLatLng();
+                CABA[i] = [pos.lat, pos.lng];
+                redrawCabaPolygon();
+            });
+
+            vertexMarkers.push(marker);
+        });
+    }
+
+    function hideVertexMarkers() {
+        vertexMarkers.forEach(m => map.removeLayer(m));
+        vertexMarkers = [];
+    }
+
+    function redrawCabaPolygon() {
+        if (cabaLayer) map.removeLayer(cabaLayer);
+        cabaLayer = L.polygon(CABA, {
+            color: COLORES[0], fillColor: COLORES[0], fillOpacity: 0.15, weight: 3,
+        }).addTo(map);
+    }
+
+    // ================================================================
+    // DRAW NEW POLYGON
+    // ================================================================
+
+    function toggleDrawMode() {
+        if (editMode) toggleEditMode();
+
+        if (drawMode) {
+            stopDrawMode();
+            return;
+        }
+
+        drawMode = true;
+        drawPoints = [];
+        drawMarkers = [];
+
+        const btn = document.getElementById('btn-draw-polygon');
+        btn.textContent = 'Cancelar dibujo';
+        btn.classList.add('drawing');
+        document.getElementById('btn-finish-draw').style.display = 'inline-block';
+        updatePolygonStatus('drawing', 'Click en el mapa para agregar vertices. Doble-click o "Terminar" para cerrar.');
+
+        map.getContainer().style.cursor = 'crosshair';
+        map.on('click', onDrawClick);
+        map.on('dblclick', onDrawFinish);
+    }
+
+    function onDrawClick(e) {
+        if (!drawMode) return;
+        const { lat, lng } = e.latlng;
+        drawPoints.push([lat, lng]);
+
+        const icon = L.divIcon({ className: 'vertex-marker-draw', iconSize: [10, 10], iconAnchor: [5, 5] });
+        const marker = L.marker([lat, lng], { icon }).addTo(map);
+        drawMarkers.push(marker);
+
+        // Preview line
+        if (drawPreviewLine) map.removeLayer(drawPreviewLine);
+        if (drawPoints.length >= 2) {
+            drawPreviewLine = L.polyline(drawPoints, {
+                color: '#f97316', weight: 2, dashArray: '6,4',
+            }).addTo(map);
+        }
+
+        updatePolygonStatus('drawing', `${drawPoints.length} vertices. Click para agregar, doble-click o "Terminar" para cerrar.`);
+    }
+
+    function onDrawFinish() {
+        if (!drawMode || drawPoints.length < 3) {
+            if (drawPoints.length < 3) {
+                updatePolygonStatus('drawing', 'Necesitas al menos 3 vertices para formar un poligono');
+            }
+            return;
+        }
+        finishDraw();
+    }
+
+    function finishDraw() {
+        if (drawPoints.length < 3) {
+            alert('Necesitas al menos 3 vertices para formar un poligono');
+            return;
+        }
+
+        CABA.length = 0;
+        drawPoints.forEach(p => CABA.push([p[0], p[1]]));
+
+        cleanupDraw();
+        drawMode = false;
+
+        const btn = document.getElementById('btn-draw-polygon');
+        btn.textContent = 'Dibujar nuevo';
+        btn.classList.remove('drawing');
+        document.getElementById('btn-finish-draw').style.display = 'none';
+        document.getElementById('btn-save-polygon').style.display = 'inline-block';
+        document.getElementById('btn-reset-polygon').style.display = 'inline-block';
+
+        map.getContainer().style.cursor = '';
+        map.off('click', onDrawClick);
+        map.off('dblclick', onDrawFinish);
+
+        dibujarZonas();
+        updatePolygonStatus('editing', 'Poligono dibujado. Guarda para conservar los cambios.');
+    }
+
+    function stopDrawMode() {
+        cleanupDraw();
+        drawMode = false;
+        drawPoints = [];
+
+        const btn = document.getElementById('btn-draw-polygon');
+        btn.textContent = 'Dibujar nuevo';
+        btn.classList.remove('drawing');
+        document.getElementById('btn-finish-draw').style.display = 'none';
+
+        map.getContainer().style.cursor = '';
+        map.off('click', onDrawClick);
+        map.off('dblclick', onDrawFinish);
+
+        updatePolygonStatus('', '');
+    }
+
+    function exportPolygon() {
+        // Exportar poligono CABA
+        const coords = CABA.map(p => `        [${p[0].toFixed(4)}, ${p[1].toFixed(4)}],`).join('\n');
+        const cabaBlock = `POLIGONO CABA (${CABA.length} vertices):\n[\n${coords}\n]`;
+
+        // Exportar circulos (zonas 1-4)
+        const circulosBlock = ZONAS.slice(1).map(z =>
+            `  ${z.nombre}: ${z.radio} km (aumento: +${Math.round(z.aumento * 100)}%)`
+        ).join('\n');
+
+        const output = `${cabaBlock}\n\nCIRCULOS (desde centro CABA ${CABA_CENTER.lat}, ${CABA_CENTER.lng}):\n${circulosBlock}`;
+
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:10000;display:flex;align-items:center;justify-content:center';
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#1e293b;border-radius:12px;padding:20px;max-width:600px;width:90%;max-height:80vh;display:flex;flex-direction:column;gap:10px';
+        box.innerHTML = `
+            <div style="color:#f8fafc;font-weight:700;font-size:14px">Configuracion completa de zonas</div>
+            <div style="color:#94a3b8;font-size:11px">Copia todo y pegalo en el chat para que quede fijo en el codigo</div>
+            <textarea id="export-text" readonly style="width:100%;height:350px;padding:10px;border:1px solid #334155;border-radius:8px;background:#0f172a;color:#e2e8f0;font-size:11px;font-family:monospace;resize:vertical">${output}</textarea>
+            <div style="display:flex;gap:8px">
+                <button onclick="navigator.clipboard.writeText(document.getElementById('export-text').value);this.textContent='Copiado!';this.style.background='#22c55e'" style="padding:8px 16px;border:none;border-radius:6px;background:#3b82f6;color:white;font-weight:600;cursor:pointer;font-size:12px">Copiar todo</button>
+                <button onclick="this.closest('div').closest('div').closest('div').remove()" style="padding:8px 16px;border:1px solid #334155;border-radius:6px;background:transparent;color:#94a3b8;cursor:pointer;font-size:12px">Cerrar</button>
+            </div>
+        `;
+        overlay.appendChild(box);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
+    }
+
+    function cleanupDraw() {
+        drawMarkers.forEach(m => map.removeLayer(m));
+        drawMarkers = [];
+        if (drawPreviewLine) {
+            map.removeLayer(drawPreviewLine);
+            drawPreviewLine = null;
+        }
+    }
+
+    // ================================================================
+    // TABLA DE PRECIOS
+    // ================================================================
+
+    function renderTabla(activeIdx) {
+        const tbody = document.getElementById('tabla-body');
+        tbody.innerHTML = '';
+        ZONAS.forEach((z, i) => {
+            const color = COLORES[i];
+            const tr = document.createElement('tr');
+            if (i === activeIdx) tr.className = 'active';
+
+            const inc = z.aumento === 0 ? 'BASE' : `+${Math.round(z.aumento * 100)}%`;
+            const labelText = i === 0 ? 'CABA' : `${i > 1 ? ZONAS[i-1].radio : 0}-${z.radio}km`;
+
+            tr.innerHTML = `
+                <td>
+                    <div class="zona-badge">
+                        <span class="zona-dot" style="background:${color}"></span>
+                        ${z.nombre}
+                    </div>
+                    <div class="zona-radio">${labelText} &middot; ${inc}</div>
+                </td>
+                ${SERVICIOS.map(s => `
+                    <td class="precio" style="color:${color}">${fmt(calcPrecio(s.base, i, rangoActual))}</td>
+                `).join('')}
+            `;
+
+            const zoomLevels = [12, 10, 10, 9, 8];
+            tr.style.cursor = 'pointer';
+            tr.addEventListener('click', () => {
+                map.setView([CABA_CENTER.lat, CABA_CENTER.lng], zoomLevels[i]);
+            });
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    // ================================================================
+    // CONFIGURACION DE ZONAS (sliders + polygon controls)
+    // ================================================================
+
+    function renderZoneConfig() {
+        const container = document.getElementById('zone-config');
+        container.innerHTML = '';
+
+        // Zona 0 (CABA) - with polygon controls
+        const cabaRow = document.createElement('div');
+        cabaRow.className = 'zone-config-row';
+        cabaRow.innerHTML = `
+            <div class="zc-label"><span class="zc-dot" style="background:${COLORES[0]}"></span>Muy Cercano</div>
+            <span style="flex:1;color:#475569;font-size:11px">Poligono CABA (${CABA.length} vertices)</span>
+            <span class="zc-value">-</span>
+        `;
+        container.appendChild(cabaRow);
+
+
+        // Zonas con circulos (sliders)
+        for (let i = 1; i < ZONAS.length; i++) {
+            const z = ZONAS[i];
+            const minVal = i === 1 ? 5 : ZONAS[i-1].radio + 1;
+            const maxVal = i === ZONAS.length - 1 ? 150 : 100;
+            const row = document.createElement('div');
+            row.className = 'zone-config-row';
+            row.innerHTML = `
+                <div class="zc-label"><span class="zc-dot" style="background:${COLORES[i]}"></span>${z.nombre}</div>
+                <input type="range" min="${minVal}" max="${maxVal}" value="${z.radio}" data-zone="${i}" />
+                <span class="zc-value">${z.radio} km</span>
+            `;
+
+            const slider = row.querySelector('input[type="range"]');
+            const valueSpan = row.querySelector('.zc-value');
+            slider.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value);
+                ZONAS[i].radio = val;
+                ZONAS[i].label = i === 1
+                    ? `Hasta ${val}km`
+                    : `${ZONAS[i-1].radio}-${val}km`;
+                valueSpan.textContent = val + ' km';
+                for (let j = i + 1; j < ZONAS.length; j++) {
+                    if (ZONAS[j].radio <= ZONAS[j-1].radio) {
+                        ZONAS[j].radio = ZONAS[j-1].radio + 1;
+                    }
+                }
+                renderZoneConfig();
+                dibujarZonas();
+                renderTabla(zonaActual ? zonaActual.idx : -1);
+                calcularTotal();
+            });
+
+            container.appendChild(row);
+        }
+    }
+
+    // ================================================================
+    // CONTROLES DE SUPERFICIE
+    // ================================================================
+
+    document.querySelectorAll('.rango-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const rango = parseInt(btn.dataset.rango);
+            if (rango === -1) {
+                alert('Mas de 5000m2: DERIVAR A LUCAS para cotizacion personalizada.');
+                return;
+            }
+            document.querySelectorAll('.rango-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            rangoActual = rango;
+            renderTabla(zonaActual ? zonaActual.idx : -1);
+            dibujarZonas();
+            calcularTotal();
+        });
+    });
+
+    // ================================================================
+    // BUSQUEDA DE DIRECCION
+    // ================================================================
+
+    document.getElementById('address').addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter') return;
+        const q = e.target.value.trim();
+        if (!q) return;
+
+        const resultDiv = document.getElementById('result');
+        resultDiv.className = '';
+        resultDiv.innerHTML = 'Buscando...';
+
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+            const data = await res.json();
+            if (data.length === 0) { resultDiv.innerHTML = 'No se encontro la direccion'; return; }
+
+            const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+            const display = data[0].display_name.split(',').slice(0, 3).join(', ');
+
+            if (searchMarker) map.removeLayer(searchMarker);
+            const resultado = buscarZona(lat, lng);
+            zonaActual = resultado;
+            const { zona, dist, idx, dentroCABA } = resultado;
+            const color = zona ? COLORES[idx] : '#666';
+
+            searchMarker = L.marker([lat, lng]).addTo(map);
+            map.setView([lat, lng], dentroCABA ? 13 : 11);
+
+            if (zona) {
+                resultDiv.className = 'found';
+                const aumentoText = zona.aumento === 0 ? 'BASE (0%)' : `+${Math.round(zona.aumento * 100)}%`;
+                const distText = dentroCABA ? 'Dentro de CABA' : `${dist.toFixed(1)} km del centro`;
+
+                let preciosHtml = `
+                    <div class="result-precios-grid">
+                        <div></div>
+                        <div class="rh">Hasta 1000m2</div>
+                        <div class="rh">1000-3000</div>
+                        <div class="rh">3000-5000</div>
+                        ${SERVICIOS.map(s => `
+                            <div class="sl">${s.label}</div>
+                            <div class="pv" style="color:${color}">${fmt(calcPrecio(s.base, idx, 0))}</div>
+                            <div class="pv" style="color:${color}">${fmt(calcPrecio(s.base, idx, 1))}</div>
+                            <div class="pv" style="color:${color}">${fmt(calcPrecio(s.base, idx, 2))}</div>
+                        `).join('')}
+                    </div>
+                `;
+
+                resultDiv.innerHTML = `
+                    <div class="result-address">${display}</div>
+                    <div class="result-main">
+                        <span class="result-zona-badge" style="background:${color}30;color:${color}">
+                            ${zona.nombre}
+                        </span>
+                        <span class="result-dist">${distText}</span>
+                        <span class="result-aumento">Aumento: ${aumentoText}</span>
+                    </div>
+                    ${preciosHtml}
+                `;
+                searchMarker.bindPopup(`<b>${display}</b><br>${zona.nombre} - ${distText} - ${aumentoText}`).openPopup();
+                renderTabla(idx);
+            } else {
+                resultDiv.innerHTML = `
+                    <div class="result-address">${display}</div>
+                    <div style="color:#ef4444;font-weight:700;margin-top:4px">
+                        FUERA DE COBERTURA (${dist.toFixed(1)} km del centro)
+                    </div>
+                    <div class="derivar-alert">
+                        Derivar a Lucas - Supera los ${ZONAS[ZONAS.length-1].radio} km de cobertura
+                    </div>
+                `;
+                searchMarker.bindPopup(`<b>${display}</b><br>FUERA DE COBERTURA`).openPopup();
+                renderTabla(-1);
+            }
+
+            calcularTotal();
+        } catch (err) {
+            resultDiv.innerHTML = 'Error: ' + err.message;
+        }
+    });
+
+    // ================================================================
+    // CALCULADORA
+    // ================================================================
+
+    function calcularTotal() {
+        const q = cotizar();
+        document.getElementById('sub-aerosoles').textContent = '= ' + fmt(q.sub.aerosoles);
+        document.getElementById('sub-ahuyentador').textContent = '= ' + fmt(q.sub.ahuyentador);
+        document.getElementById('sub-cajas').textContent = '= ' + fmt(q.sub.cajas);
+        document.getElementById('sub-bandejas').textContent = '= ' + fmt(q.sub.bandejas);
+        document.getElementById('sub-trampas').textContent = '= ' + fmt(q.sub.trampas);
+        document.getElementById('ct-insumos').textContent = fmt(q.totalInsumos);
+
+        if (!q.valida) {
+            ['ct-servicio', 'ct-total', 'ct-iva'].forEach(id => document.getElementById(id).textContent = '-');
+            document.getElementById('ct-recargo-row').style.display = 'none';
+            document.getElementById('ct-combo-row').style.display = 'none';
+            return;
+        }
+
+        document.getElementById('ct-servicio').textContent = fmt(q.principal.sinAjuste) + ' (' + SERVICIOS[q.principal.i].label + ')';
+        if (q.combo) {
+            document.getElementById('ct-combo-row').style.display = 'flex';
+            document.getElementById('ct-combo-label').textContent = `Combo ${SERVICIOS[q.combo.i].label} (40%):`;
+            document.getElementById('ct-combo').textContent = fmt(q.combo.importeSinAjuste);
+        } else {
+            document.getElementById('ct-combo-row').style.display = 'none';
+        }
+        if (q.franja > 0) {
+            document.getElementById('ct-recargo-row').style.display = 'flex';
+            document.getElementById('ct-recargo-label').textContent = `Ajuste franja (${q.franjaSel.split('(')[1]?.replace(')', '') || ''}, solo servicio)`;
+            document.getElementById('ct-recargo').textContent = fmt(q.recargo);
+        } else {
+            document.getElementById('ct-recargo-row').style.display = 'none';
+        }
+        document.getElementById('ct-total').textContent = fmt(q.total);
+        document.getElementById('ct-iva').textContent = fmt(q.conIva);
+    }
+
+    ['calc-servicio', 'calc-combo', 'calc-aerosoles', 'calc-ahuyentador', 'calc-cajas', 'calc-bandejas', 'calc-trampas', 'calc-horario'].forEach(id => {
+        document.getElementById(id).addEventListener('input', calcularTotal);
+        document.getElementById(id).addEventListener('change', calcularTotal);
+    });
+
+    // ================================================================
+    // RESPUESTA PARA EL CLIENTE (cotizacion)
+    // ================================================================
+
+    function generarRespuesta() {
+        if (!zonaActual || zonaActual.idx < 0) {
+            document.getElementById('resp-text').value = 'Primero busca una direccion valida para generar la respuesta.';
+            return;
+        }
+
+        const nombre = document.getElementById('resp-nombre').value.trim();
+        const notas = document.getElementById('resp-notas').value.trim();
+        const plaga = document.getElementById('calc-plaga').value;
+        const q = cotizar();
+        const { insumos: ins, totalInsumos } = q;
+
+        const addressInput = document.getElementById('address').value.trim();
+
+        const plagaNames = {
+            'Pulgas': 'pulgas', 'Garrapatas': 'garrapatas', 'Chinches': 'chinches',
+            'Cucarachas': 'cucarachas', 'Hormigas': 'hormigas', 'Aranas': 'aranas',
+            'Mosquitos': 'mosquitos/insectos voladores', 'Roedores': 'roedores',
+            'Desinfeccion': 'desinfeccion', 'Preventivo': 'control preventivo',
+        };
+        const plagaText = plagaNames[plaga] || plaga.toLowerCase();
+
+        let saludo = nombre ? `Hola ${nombre}! ` : '';
+        let msg = `${saludo}Perfecto, te paso la cotizacion para el servicio de ${plagaText}:\n\n`;
+
+        msg += `*Servicio:* Control de ${plagaText}\n`;
+        if (addressInput) msg += `*Ubicacion:* ${addressInput}\n`;
+        msg += `*Superficie:* ${RANGOS[rangoActual]}\n\n`;
+
+        // El ajuste de franja y la zona se aplican, no se anuncian (PRECIOS.md)
+        const turno = q.franjaSel.split('(')[0].trim();
+        msg += `*Turno:* ${turno}\n\n`;
+        msg += `Precio del servicio: ${fmt(q.servicio)}\n`;
+
+        const detalle = detalleInsumos(ins);
+        if (totalInsumos > 0) {
+            msg += `Insumos: ${fmt(totalInsumos)}`;
+            if (detalle.length > 0) msg += ` (${detalle.join(', ')})`;
+            msg += '\n';
+        }
+
+        msg += `\n*Total: ${fmt(q.total)}*\n`;
+        msg += `\n_Valores sin IVA. Si necesitas Factura A o abonas por transferencia, pasanos razon social y CUIT/CUIL y te enviamos el presupuesto final._\n`;
+
+        // Detalles para el cliente (NO confundir con notas internas del vendedor)
+        const detalles = [];
+        if (['Pulgas', 'Garrapatas'].includes(plaga)) {
+            detalles.push('Si tenes mascotas, es importante que esten tratadas con antipulgas al menos 24 horas antes del servicio');
+            detalles.push('El ambiente debe permanecer cerrado 2 horas despues del tratamiento y luego ventilar 30-45 minutos');
+        }
+        if (plaga === 'Chinches') {
+            detalles.push('Es muy importante aspirar bien antes y despues del tratamiento (elimina huevos que el producto no alcanza)');
+            detalles.push('El ambiente debe permanecer cerrado 2 horas despues del tratamiento y luego ventilar 30-45 minutos');
+        }
+        if (plaga === 'Cucarachas') {
+            detalles.push('El producto puede tener olor fuerte, es recomendable no estar en el ambiente durante la aplicacion');
+        }
+        if (plaga === 'Desinfeccion') {
+            detalles.push('No puede haber alimentos ni utensilios de cocina expuestos durante la aplicacion');
+            detalles.push('El area debe permanecer cerrada 1 hora y luego ventilar minimo 30 minutos');
+        }
+        if (plaga === 'Mosquitos' || plaga === 'Hormigas' || plaga === 'Aranas') {
+            detalles.push('Si hay alimentos o utensilios de cocina expuestos, es importante taparlos o retirarlos antes del servicio');
+        }
+        if (notas) {
+            detalles.push(notas);
+        }
+
+        if (detalles.length > 0) {
+            msg += '\nTe envio algunos detalles a tener en cuenta:\n';
+            detalles.forEach(d => { msg += `- ${d}\n`; });
+        }
+
+        msg += '\nDe igual modo, una vez confirmes el servicio te enviamos el instructivo PDF con todas las indicaciones detalladas de que hacer previo y posterior al tratamiento.\n';
+        msg += '\nQuedamos en contacto!';
+
+        document.getElementById('resp-text').value = msg;
+        document.getElementById('btn-copiar').disabled = false;
+
+        document.getElementById('ficha-text').value = generarFicha(q, plaga, nombre, addressInput, notas);
+        document.getElementById('btn-copiar-ficha').disabled = false;
+    }
+
+    function detalleInsumos(ins) {
+        const d = [];
+        if (ins.aerosoles > 0) d.push(`${ins.aerosoles} aerosol${ins.aerosoles > 1 ? 'es' : ''}`);
+        if (ins.ahuyentador > 0) d.push(`${ins.ahuyentador} aerosol${ins.ahuyentador > 1 ? 'es' : ''} ahuyentador${ins.ahuyentador > 1 ? 'es' : ''}`);
+        if (ins.cajas > 0) d.push(`${ins.cajas} caja${ins.cajas > 1 ? 's' : ''} cebadera${ins.cajas > 1 ? 's' : ''}`);
+        if (ins.bandejas > 0) d.push(`${ins.bandejas} bandeja${ins.bandejas > 1 ? 's' : ''} de cebado`);
+        if (ins.trampas > 0) d.push(`${ins.trampas} trampa${ins.trampas > 1 ? 's' : ''} UV`);
+        return d;
+    }
+
+    // Ficha interna para el asesor: aca si van zona, porcentajes, desglose e IVA
+    function generarFicha(q, plaga, nombre, direccion, notas) {
+        const z = zonaActual.zona;
+        const pct = v => v === 0 ? '0%' : `+${Math.round(v * 100)}%`;
+        const ubic = zonaActual.dentroCABA ? 'Dentro de CABA' : `${zonaActual.dist.toFixed(1)} km del centro`;
+        const lineas = [
+            '[FICHA-ASESOR]',
+            `Cliente: ${nombre || '-'}`,
+            `Direccion: ${direccion || '-'}`,
+            `Zona: ${z.nombre} (${pct(z.aumento)}) - ${ubic}`,
+            `Plaga: ${plaga}`,
+            `Superficie: ${RANGOS[rangoActual]}`,
+            `Franja: ${q.franjaSel}`,
+            '',
+            `Servicio: ${SERVICIOS[q.principal.i].label} ${fmt(q.principal.conFranja)}` + (q.franja > 0 ? ` (sin ajuste ${fmt(q.principal.sinAjuste)})` : ''),
+        ];
+        if (q.combo) lineas.push(`Combo: ${SERVICIOS[q.combo.i].label} al 40% ${fmt(q.combo.importe)} (pleno ${fmt(q.combo.conFranja)})`);
+        const cant = { aerosoles: 'Aerosol', ahuyentador: 'Aerosol ahuyentador', cajas: 'Caja cebadera', bandejas: 'Bandeja de cebado', trampas: 'Trampa UV' };
+        const ins = Object.keys(cant).filter(k => q.insumos[k] > 0);
+        if (ins.length) {
+            lineas.push('Insumos (sin ajuste de franja):');
+            ins.forEach(k => lineas.push(`  - ${cant[k]} x${q.insumos[k]}: ${fmt(q.sub[k])}`));
+        } else {
+            lineas.push('Insumos: ninguno');
+        }
+        lineas.push('', `TOTAL sin IVA: ${fmt(q.total)}`, `Referencia con IVA 21% (solo si pide Factura A / transferencia): ${fmt(q.conIva)}`);
+
+        const alertas = [];
+        if (q.servicio !== q.servicioSinAjuste) alertas.push(`Ajuste de franja incluido: ${fmt(q.recargo)} (no se le informa al cliente)`);
+        if (SERVICIOS[q.principal.i].key === 'roedores' || (q.combo && SERVICIOS[q.combo.i].key === 'roedores')) {
+            if (!q.insumos.cajas && !q.insumos.bandejas) alertas.push('Roedores sin cajas ni bandejas cargadas: revisar (cajas obligatorias en rubro sensible y siempre en exterior)');
+        }
+        if (notas) alertas.push(`Notas: ${notas}`);
+        if (alertas.length) { lineas.push('', 'Alertas:'); alertas.forEach(a => lineas.push(`  - ${a}`)); }
+        lineas.push('[/FICHA-ASESOR]');
+        return lineas.join('\n');
+    }
+
+    // ================================================================
+    // CONSULTAS RAPIDAS (vendedor / cliente)
+    // ================================================================
+
+    const CONSULTAS = {
+        mascotas: {
+            cliente: `Con respecto a las mascotas, durante el servicio no pueden estar en los ambientes donde se aplica el producto. Lo ideal es que esten en otro lugar o, si hay un ambiente que no se va a tratar, pueden quedarse ahi con la puerta cerrada.
+
+Si tenes pecera, reptiles o anfibios, es muy importante que nos avises antes del servicio ya que necesitamos tomar precauciones especiales para protegerlos.
+
+Si hay chicos menores de 2 anios, tampoco pueden estar presentes durante el servicio.
+
+Cualquier duda nos consultas!`,
+            vendedor: `MASCOTAS - NOTA INTERNA
+================================
+- Mascotas generales: NO pueden estar durante tratamiento (o en ambiente aislado sellado)
+- PECES / REPTILES / ANFIBIOS: piretroides son FATALES
+  > Opcion 1: Retirar del lugar, no volver 24-48hs + ventilacion
+  > Opcion 2: Aislar hermeticamente (sellar puertas/ventanas con cinta)
+  > Opcion 3: No realizar si no pueden cumplir 1 o 2
+- Ninios <2 anios: NO pueden estar presentes ni en ambientes aislados
+- Pulgas/garrapatas: mascotas deben tratarse con antipulgas 24hs ANTES
+- IMPORTANTE: La alerta de peces/reptiles es INFO INTERNA, no se le dice al cliente con ese nivel de detalle. Solo se pide que avise si tiene.`,
+            hint_cliente: 'Mensaje para enviar al cliente por WhatsApp',
+            hint_vendedor: 'Nota interna - NO enviar al cliente',
+        },
+        pisos: {
+            cliente: `Con respecto al tipo de piso, le avisamos al tecnico para que tenga las precauciones necesarias segun el tipo de superficie y cuide los acabados.
+
+Si tenes alfombra, te recomendamos un refuerzo del tratamiento a los 15 dias para mayor efectividad, ya que las fibras pueden proteger los huevos del producto.
+
+Te pedimos que nos confirmes el tipo de piso asi preparamos todo de la mejor manera.`,
+            vendedor: `PISOS - NOTA INTERNA
+================================
+- Madera: avisar tecnico, aplicar en lluvia fina (puede estropear acabado)
+  > Aplica a: pulgas, garrapatas, chinches
+- Alfombra: refuerzo 15 dias OBLIGATORIO (fibras protegen huevos)
+  > Aplica a: pulgas, garrapatas, chinches
+  > Informar al cliente que es recomendable (no decir obligatorio)
+- Porcelanato/ceramica: sin precauciones especiales
+- Si piso madera + pulgas/garrapatas/chinches: doble cuidado
+- NOTA: Al cliente solo se le dice "le avisamos al tecnico". Los detalles tecnicos son para coordinacion interna.`,
+            hint_cliente: 'Mensaje para enviar al cliente por WhatsApp',
+            hint_vendedor: 'Nota interna - NO enviar al cliente',
+        },
+        horarios: {
+            cliente: `El servicio se coordina de lunes a sabado. Contanos que dias y horarios te quedan bien y te armamos la agenda.
+
+Turnos disponibles:
+- Lunes a viernes de 9:00 a 16:30
+- Tambien de 17:00 a 20:00, de 20:00 a 22:00 y de 22:00 a 00:30
+- Sabados de 9:00 a 12:30
+
+Los domingos no tenemos servicio disponible.
+
+Decinos que franja te queda mejor y te confirmamos disponibilidad!`,
+            vendedor: `HORARIOS - NOTA INTERNA
+================================
+- Domicilios: turnos segun disponibilidad del cliente
+- Comercios: SIEMPRE preguntar dias y horarios posibles
+- NO hay servicio domingos (sin excepciones)
+- Ajuste por franja (SOLO sobre el servicio, los insumos van sin ajuste):
+  > 9:00-16:30: sin ajuste
+  > 17:00-20:00: +20%
+  > 20:00-22:00: +35%
+  > 22:00-00:30: +50%
+  > Sabado 9:00-12:30: +20% (no hay sabado a la tarde, no se acumula)
+- IMPORTANTE: el ajuste se aplica pero NO se anuncia; nunca decir porcentaje al cliente
+- "Lo antes posible" / ventana amplia que incluye el dia -> sin ajuste
+- Para comercios: tambien preguntar si tenian empresa anterior y que rubro`,
+            hint_cliente: 'Mensaje para enviar al cliente por WhatsApp',
+            hint_vendedor: 'Nota interna - NO enviar al cliente',
+        },
+        postservicio: {
+            cliente: `Una vez realizado el servicio, te dejamos algunas indicaciones generales:
+
+- El ambiente tratado debe permanecer cerrado por el tiempo que te indique el tecnico (generalmente entre 1 y 2 horas)
+- Luego ventilar bien durante al menos 30-45 minutos antes de ingresar
+- Si tenes mascotas, esperar a que el ambiente este completamente ventilado antes de que vuelvan a entrar
+- Evitar lavar los pisos en las primeras 24 horas para no remover el producto aplicado
+
+Te enviamos el instructivo PDF con todas las indicaciones detalladas una vez confirmes el servicio.`,
+            vendedor: `POST-SERVICIO - NOTA INTERNA
+================================
+Por plaga:
+- Pulgas/Garrapatas: Cerrado 2hs | Ventilar 30-45min | Aspirado previo y posterior
+- Chinches: Cerrado 2hs | Ventilar 30-45min | Aspirado previo y posterior (crucial huevos)
+- Cucarachas: Producto irritante en espacios cerrados, monoambiente puede requerir desalojo
+- Desinfeccion: Cerrado 1h | Ventilar min 30min | ULV electrico siempre
+- Voladores: Tapar alimentos, UV traps quedan como control continuo
+
+General:
+- SIEMPRE adjuntar PDF instructivo SOLO despues de que el cliente acepte presupuesto
+- Comercios: tecnico dara informe de recomendaciones estructurales y de higiene
+- NO anticipar el instructivo antes de confirmar servicio`,
+            hint_cliente: 'Mensaje para enviar al cliente por WhatsApp',
+            hint_vendedor: 'Nota interna - NO enviar al cliente',
+        },
+    };
+
+    function setModoConsulta(modo) {
+        modoConsulta = modo;
+        document.querySelectorAll('.modo-btn').forEach(b => b.classList.remove('active'));
+        if (modo === 'cliente') {
+            document.querySelector('.modo-btn.modo-cliente').classList.add('active');
+        } else {
+            document.querySelector('.modo-btn.modo-vendedor').classList.add('active');
+        }
+
+        // Regenerar si hay tab activa
+        const activeTab = document.querySelector('.consulta-tab.active');
+        if (activeTab) {
+            generarConsulta(activeTab.dataset.tema);
+        }
+    }
+
+    function generarConsulta(tema) {
+        // Activar tab
+        document.querySelectorAll('.consulta-tab').forEach(t => t.classList.remove('active'));
+        document.querySelector(`.consulta-tab[data-tema="${tema}"]`).classList.add('active');
+
+        const data = CONSULTAS[tema];
+        if (!data) return;
+
+        const texto = modoConsulta === 'cliente' ? data.cliente : data.vendedor;
+        const hint = modoConsulta === 'cliente' ? data.hint_cliente : data.hint_vendedor;
+
+        document.getElementById('consulta-text').value = texto;
+        document.getElementById('consulta-hint').textContent = hint;
+        document.getElementById('consulta-hint').style.color = modoConsulta === 'cliente' ? '#22c55e' : '#f97316';
+        document.getElementById('btn-copiar-consulta').disabled = false;
+    }
+
+    // ================================================================
+    // COPY TO CLIPBOARD (shared)
+    // ================================================================
+
+    function copiarTexto(textareaId, feedbackId) {
+        const text = document.getElementById(textareaId).value;
+        if (!text) return;
+
+        navigator.clipboard.writeText(text).then(() => {
+            showCopyFeedback(feedbackId);
+        }).catch(() => {
+            const ta = document.getElementById(textareaId);
+            ta.select();
+            document.execCommand('copy');
+            showCopyFeedback(feedbackId);
+        });
+    }
+
+    function showCopyFeedback(feedbackId) {
+        const fb = document.getElementById(feedbackId);
+        fb.style.display = 'inline';
+        setTimeout(() => { fb.style.display = 'none'; }, 2000);
+    }
+
+    // ================================================================
+    // INIT
+    // ================================================================
+
+    loadSavedPolygon();
+    renderZoneConfig();
+    dibujarZonas();
+    renderTabla(-1);
+    calcularTotal();
+    </script>
+</body>
+</html>

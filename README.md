@@ -1,125 +1,54 @@
-# Sistema de Zonas y Precios
+# Cotizador de Control de Plagas — Zonas y Precios
 
-Herramienta para definir zonas geográficas (polígonos) con precios diferenciados por servicio.
+Aplicación web para vendedores. Se ingresa la dirección del cliente, el mapa detecta la zona y muestra los precios por tratamiento. La calculadora arma la cotización y genera dos salidas: el mensaje para el cliente (WhatsApp) y la ficha interna `[FICHA-ASESOR]`.
 
-## 🗺️ Editor de Zonas
+Es un único HTML estático, sin backend ni build. Se puede servir desde GitHub Pages, Hostinger o cualquier hosting estático.
 
-**Archivo:** `mapa_poligonos.html`
+## Archivos
 
-### Cómo usar:
+| Archivo | Qué es |
+|---|---|
+| `index.html` | La aplicación cotizadora |
+| `ZONAS.md` | Localidad → zona (lo usa el bot) |
+| `PRECIOS.md` | Precios por zona, servicio, rango y franja + insumos (lo usa el bot) |
+| `herramientas/editor-zonas.html` | Editor/calibrador que regenera `ZONAS.md` y `PRECIOS.md` |
+| `PENDIENTES.md` | Mejoras y tareas abiertas |
 
-1. **Dibujar zonas**: Click en 🔷 (arriba derecha), luego click en el mapa para agregar vértices. Doble-click para cerrar.
-2. **Editar forma**: Click en ✏️, arrastra los vértices del polígono
-3. **Configurar precios**: En el sidebar, edita los 4 servicios (plagas, roedores, ulv, termo)
-4. **Buscar dirección**: Ingresa una dirección para ver en qué zona cae
-5. **Guardar**: Se guarda automáticamente en LocalStorage del browser
+## Cómo funciona la zona
 
-### Botones del sidebar:
+1. **CABA** = polígono de 48 vértices (Gral. Paz, Riachuelo, Río de la Plata) → 0%.
+2. Fuera de CABA: distancia en línea recta desde el **Obelisco** (-34.6037, -58.3816).
 
-- **📥 Exportar**: Genera JSON con todas las zonas (coordenadas + precios)
-- **📤 Importar**: Carga zonas desde un JSON previamente exportado
-- **⚡ Ver Función**: Muestra código listo para usar en tu backend
+| Zona | Distancia | Aumento |
+|---|---|---|
+| CABA (Muy Cercano) | Polígono | 0% |
+| Cercano | hasta 20 km | +10% |
+| Media Distancia | 20 a 30 km | +25% |
+| Lejano | 30 a 40 km | +35% |
+| Muy Lejano | 40 a 69 km | +50% |
+| Fuera de cobertura | más de 69 km | derivar |
 
----
+Calibrado el 25/09/2026 contra `ZONAS.md`: coinciden 238 de 241 localidades del GBA. Las tres restantes están en el borde de una zona.
 
-## 💾 Formato de datos (JSON)
+## Precios
 
-Cuando exportas, obtienes algo así:
+Coinciden con `PRECIOS.md` (verificado en las 450 líneas de precio).
 
-```json
-[
-  {
-    "nombre": "Zona Centro",
-    "vertices": [
-      [-34.60, -58.45],
-      [-34.60, -58.40],
-      [-34.65, -58.40],
-      [-34.65, -58.45]
-    ],
-    "precios": {
-      "plagas": 40000,
-      "roedores": 50000,
-      "ulv": 60000,
-      "termo": 120000
-    }
-  }
-]
-```
+- Servicio = base × 1,25 por cada rango de m² × aumento de zona × ajuste de franja.
+- Franjas (solo sobre el servicio): 17–20 +20%, 20–22 +35%, 22–00:30 +50%, sábado 9–12:30 +20%. Domingo no hay servicio.
+- Combo de dos servicios: el mayor va pleno y el menor al 40%.
+- Los insumos se suman sin ajuste de franja.
+- Todo es sin IVA. El IVA (21%) aparece solo como referencia en la ficha del asesor.
+- Más de 5000 m² → derivar.
 
-Cada zona tiene:
-- `nombre`: Identificador legible
-- `vertices`: Array de `[lat, lng]` que forman el polígono
-- `precios`: Objeto con precio de cada servicio
+**Al cliente nunca se le muestran ni la zona ni los porcentajes.**
 
----
+## Actualizar precios o zonas
 
-## 🔧 Usar en tu código
+1. Abrir `herramientas/editor-zonas.html` en el navegador donde se calibró. Las zonas quedan guardadas en ese navegador.
+2. Ajustar y exportar `ZONAS.md` + `PRECIOS.md`.
+3. Si cambian los precios base, los radios o el centro, actualizar también las constantes `SERVICIOS`, `INSUMO_PRECIOS`, `ZONAS` y `CABA_CENTER` en `index.html`.
 
-### JavaScript
+## Desplegar
 
-**Archivo:** `buscar_zona.js`
-
-```javascript
-const { buscarZona } = require('./buscar_zona.js');
-
-// Buscar zona para una coordenada
-const zona = buscarZona(-34.6011, -58.3833);
-
-if (zona) {
-    console.log(zona.nombre);      // "Zona Centro"
-    console.log(zona.precios);     // { plagas: 40000, ... }
-} else {
-    console.log("Fuera de cobertura");
-}
-```
-
-### Python
-
-**Archivo:** `buscar_zona.py`
-
-```python
-from buscar_zona import buscar_zona
-
-# Buscar zona para una coordenada
-zona = buscar_zona(-34.6011, -58.3833)
-
-if zona:
-    print(zona['nombre'])      # "Zona Centro"
-    print(zona['precios'])     # {'plagas': 40000, ...}
-else:
-    print("Fuera de cobertura")
-```
-
----
-
-## 📋 Workflow completo
-
-1. **Diseñar zonas**: Abre `mapa_poligonos.html`, dibuja tus zonas, configura precios
-2. **Exportar datos**: Click en "📥 Exportar", copia el JSON
-3. **Pegar en código**: Abre `buscar_zona.js` o `buscar_zona.py`, reemplaza la variable `ZONAS` con tu JSON
-4. **Integrar en tu app**: Usa la función `buscarZona(lat, lng)` para consultar zona y precios
-
----
-
-## 🧮 Algoritmo
-
-Usa **ray-casting** para determinar si un punto está dentro de un polígono:
-- Traza una línea desde el punto hacia el infinito
-- Cuenta cuántas veces cruza los bordes del polígono
-- Si cruza un número impar de veces → está adentro
-- Si cruza un número par de veces → está afuera
-
-Complejidad: O(n) donde n = número de vértices del polígono.
-
----
-
-## 🌍 Geolocalización
-
-Actualmente usa **Nominatim** (OpenStreetMap) para convertir direcciones a coordenadas.
-
-Alternativas para producción:
-- **Google Geocoding API**: Mejor precisión en Argentina
-- **georef.ar**: API del gobierno argentino, gratis, solo Argentina
-- **Mapbox**: Buen balance calidad/precio
-
-Para cambiar el servicio, modifica la línea del `fetch()` en el HTML.
+Subir `index.html` a la raíz del hosting. No tiene dependencias locales: Leaflet y los mapas se cargan desde internet, y las direcciones se geocodifican con Nominatim (OpenStreetMap).
