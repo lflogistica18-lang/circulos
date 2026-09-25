@@ -31,6 +31,17 @@
         }
         .search input:focus { border-color: #3b82f6; }
         .search input::placeholder { color: #475569; }
+        .sugerencias { list-style: none; margin: 6px 0 0; padding: 0; border: 1px solid #334155; border-radius: 8px; overflow: hidden; }
+        .sugerencias:empty { display: none; }
+        .sugerencias li { padding: 8px 12px; cursor: pointer; border-top: 1px solid #1e293b; background: #0f172a; }
+        .sugerencias li:first-child { border-top: none; }
+        .sugerencias li.activa, .sugerencias li:hover { background: #172554; }
+        .sug-calle { color: #e2e8f0; font-size: 13px; font-weight: 600; }
+        .sug-lugar { color: #94a3b8; font-size: 11px; margin-top: 2px; }
+        .sug-km { float: right; color: #64748b; font-size: 11px; font-weight: 400; }
+        .sug-estado { padding: 8px 12px; color: #64748b; font-size: 12px; background: #0f172a; cursor: default !important; }
+        .aviso-zonas { margin-top: 8px; padding: 8px 10px; border-radius: 6px; font-size: 12px; background: #422006; color: #fbbf24; border: 1px solid #a16207; }
+        .ok-zonas { margin-top: 6px; font-size: 11px; color: #4ade80; }
 
         /* --- Result --- */
         #result {
@@ -298,7 +309,8 @@
         <div class="scroll-area">
             <!-- Search -->
             <div class="search">
-                <input type="text" id="address" placeholder="Ingresa una direccion y presiona Enter..." />
+                <input type="text" id="address" autocomplete="off" placeholder="Calle y altura (ej: Maipu 1000) y elegi de la lista..." />
+                <ul class="sugerencias" id="sugerencias" role="listbox"></ul>
             </div>
 
             <div id="result">Busca una direccion para ver zona y precios</div>
@@ -1117,84 +1129,236 @@
     // BUSQUEDA DE DIRECCION
     // ================================================================
 
-    document.getElementById('address').addEventListener('keydown', async (e) => {
-        if (e.key !== 'Enter') return;
-        const q = e.target.value.trim();
-        if (!q) return;
+    // Sugerencias: Photon (OSM, apto para autocompletar) sesgado al Obelisco;
+    // Georef (API oficial AR) como respaldo. Nominatim solo con Enter si no hay lista.
+    const MAX_KM_SUGERENCIA = 75;
+    const addressInput = document.getElementById('address');
+    const listaSug = document.getElementById('sugerencias');
+    let sugerencias = [], sugActiva = -1, timerSug = null, pedidoSug = 0;
 
+    const normTxt = t => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/^partido de /, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    const esc = t => String(t || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    function sugDePhoton(f) {
+        const p = f.properties, [lng, lat] = f.geometry.coordinates;
+        const esCABA = /Ciudad Aut/.test(p.state || '');
+        const calle = p.street ? `${p.street}${p.housenumber ? ' ' + p.housenumber : ''}` : (p.name || '');
+        const localidad = esCABA ? (p.district || p.locality || 'CABA') : (p.city || p.district || p.locality || p.name || '');
+        const partido = esCABA ? 'CABA' : (p.county || '').replace(/^Partido de /, '');
+        // ZONAS.md trabaja a nivel localidad (city); district/locality suelen ser sub-barrios
+        const barrios = [p.city, p.district, p.locality, p.name].filter(Boolean);
+        return { lat, lng, calle, localidad, partido, esCABA, barrios };
+    }
+
+    function sugDeGeoref(d) {
+        const esCABA = d.provincia && d.provincia.id === '02';
+        const partido = esCABA ? 'CABA' : (d.departamento && d.departamento.nombre) || '';
+        const localidad = esCABA ? 'CABA' : (d.localidad_censal && d.localidad_censal.nombre) || partido;
+        return { lat: d.ubicacion.lat, lng: d.ubicacion.lon, calle: d.nomenclatura.split(',')[0], localidad, partido, esCABA, barrios: [localidad] };
+    }
+
+    async function buscarSugerencias(q) {
+        const bias = `lat=${CABA_CENTER.lat}&lon=${CABA_CENTER.lng}`;
+        let res = [];
+        try {
+            const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&${bias}&limit=12&bbox=-59.6,-35.4,-57.7,-33.9`);
+            const j = await r.json();
+            res = j.features.filter(f => (f.properties.countrycode || 'AR') === 'AR').map(sugDePhoton);
+        } catch (e) { console.warn('Photon', e); }
+        if (!res.length) {
+            try {
+                const r = await fetch(`https://apis.datos.gob.ar/georef/api/direcciones?direccion=${encodeURIComponent(q)}&provincia=02,06&max=40&campos=completo`);
+                const j = await r.json();
+                res = (j.direcciones || []).filter(d => d.ubicacion && d.ubicacion.lat != null).map(sugDeGeoref);
+            } catch (e) { console.warn('Georef', e); }
+        }
+        const vistos = new Set();
+        return res
+            .map(x => Object.assign(x, { km: distKm(x.lat, x.lng, CABA_CENTER.lat, CABA_CENTER.lng) }))
+            .filter(x => x.km <= MAX_KM_SUGERENCIA)
+            .filter(x => { const k = normTxt(x.calle + '|' + x.localidad + '|' + x.partido); if (vistos.has(k)) return false; vistos.add(k); return true; })
+            .sort((a, b) => a.km - b.km)
+            .slice(0, 8);
+    }
+
+    function renderSugerencias(estado) {
+        if (estado) { listaSug.innerHTML = `<li class="sug-estado">${estado}</li>`; return; }
+        listaSug.innerHTML = sugerencias.map((x, i) => `
+            <li role="option" data-i="${i}" class="${i === sugActiva ? 'activa' : ''}">
+                <div class="sug-calle">${esc(x.calle)}<span class="sug-km">${x.km.toFixed(0)} km</span></div>
+                <div class="sug-lugar">${esc(x.localidad)}${x.partido && x.partido !== x.localidad ? ' · ' + esc(x.partido) : ''}</div>
+            </li>`).join('');
+    }
+
+    function cerrarSugerencias() { sugerencias = []; sugActiva = -1; listaSug.innerHTML = ''; }
+
+    function elegirSugerencia(i) {
+        const x = sugerencias[i];
+        if (!x) return;
+        const lugar = x.localidad + (x.partido && x.partido !== x.localidad ? ', ' + x.partido : '');
+        addressInput.value = `${x.calle}, ${lugar}`;
+        cerrarSugerencias();
+        ubicarDireccion(x.lat, x.lng, `${x.calle} — ${lugar}`, x);
+    }
+
+    addressInput.addEventListener('input', () => {
+        clearTimeout(timerSug);
+        const q = addressInput.value.trim();
+        if (q.length < 3) { cerrarSugerencias(); return; }
+        timerSug = setTimeout(async () => {
+            const n = ++pedidoSug;
+            renderSugerencias('Buscando...');
+            const res = await buscarSugerencias(q);
+            if (n !== pedidoSug) return; // llego una respuesta vieja
+            sugerencias = res; sugActiva = -1;
+            renderSugerencias(res.length ? null : 'Sin resultados en el AMBA. Proba agregando la localidad, o Enter para buscar igual.');
+        }, 300);
+    });
+
+    addressInput.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            if (!sugerencias.length) return;
+            e.preventDefault();
+            sugActiva = (sugActiva + (e.key === 'ArrowDown' ? 1 : -1) + sugerencias.length) % sugerencias.length;
+            renderSugerencias();
+        } else if (e.key === 'Escape') {
+            cerrarSugerencias();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (sugerencias.length) elegirSugerencia(sugActiva >= 0 ? sugActiva : 0);
+            else buscarConNominatim(addressInput.value.trim());
+        }
+    });
+
+    listaSug.addEventListener('mousedown', (e) => {
+        const li = e.target.closest('li[data-i]');
+        if (li) { e.preventDefault(); elegirSugerencia(parseInt(li.dataset.i)); }
+    });
+    addressInput.addEventListener('blur', () => setTimeout(cerrarSugerencias, 150));
+
+    async function buscarConNominatim(q) {
+        if (!q) return;
+        clearTimeout(timerSug); pedidoSug++;
         const resultDiv = document.getElementById('result');
         resultDiv.className = '';
         resultDiv.innerHTML = 'Buscando...';
-
         try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=ar&q=${encodeURIComponent(q)}&limit=1`);
             const data = await res.json();
             if (data.length === 0) { resultDiv.innerHTML = 'No se encontro la direccion'; return; }
-
-            const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
             const display = data[0].display_name.split(',').slice(0, 3).join(', ');
-
-            if (searchMarker) map.removeLayer(searchMarker);
-            const resultado = buscarZona(lat, lng);
-            zonaActual = resultado;
-            const { zona, dist, idx, dentroCABA } = resultado;
-            const color = zona ? COLORES[idx] : '#666';
-
-            searchMarker = L.marker([lat, lng]).addTo(map);
-            map.setView([lat, lng], dentroCABA ? 13 : 11);
-
-            if (zona) {
-                resultDiv.className = 'found';
-                const aumentoText = zona.aumento === 0 ? 'BASE (0%)' : `+${Math.round(zona.aumento * 100)}%`;
-                const distText = dentroCABA ? 'Dentro de CABA' : `${dist.toFixed(1)} km del centro`;
-
-                let preciosHtml = `
-                    <div class="result-precios-grid">
-                        <div></div>
-                        <div class="rh">Hasta 1000m2</div>
-                        <div class="rh">1000-3000</div>
-                        <div class="rh">3000-5000</div>
-                        ${SERVICIOS.map(s => `
-                            <div class="sl">${s.label}</div>
-                            <div class="pv" style="color:${color}">${fmt(calcPrecio(s.base, idx, 0))}</div>
-                            <div class="pv" style="color:${color}">${fmt(calcPrecio(s.base, idx, 1))}</div>
-                            <div class="pv" style="color:${color}">${fmt(calcPrecio(s.base, idx, 2))}</div>
-                        `).join('')}
-                    </div>
-                `;
-
-                resultDiv.innerHTML = `
-                    <div class="result-address">${display}</div>
-                    <div class="result-main">
-                        <span class="result-zona-badge" style="background:${color}30;color:${color}">
-                            ${zona.nombre}
-                        </span>
-                        <span class="result-dist">${distText}</span>
-                        <span class="result-aumento">Aumento: ${aumentoText}</span>
-                    </div>
-                    ${preciosHtml}
-                `;
-                searchMarker.bindPopup(`<b>${display}</b><br>${zona.nombre} - ${distText} - ${aumentoText}`).openPopup();
-                renderTabla(idx);
-            } else {
-                resultDiv.innerHTML = `
-                    <div class="result-address">${display}</div>
-                    <div style="color:#ef4444;font-weight:700;margin-top:4px">
-                        FUERA DE COBERTURA (${dist.toFixed(1)} km del centro)
-                    </div>
-                    <div class="derivar-alert">
-                        Derivar a Lucas - Supera los ${ZONAS[ZONAS.length-1].radio} km de cobertura
-                    </div>
-                `;
-                searchMarker.bindPopup(`<b>${display}</b><br>FUERA DE COBERTURA`).openPopup();
-                renderTabla(-1);
-            }
-
-            calcularTotal();
+            ubicarDireccion(parseFloat(data[0].lat), parseFloat(data[0].lon), display, null);
         } catch (err) {
             resultDiv.innerHTML = 'Error: ' + err.message;
         }
-    });
+    }
+
+    // ZONAS.md: localidad/partido -> zona, para cruzar con el circulo.
+    // Se lee del mismo servidor; si no esta disponible (ej. abierto como archivo) no se cruza.
+    let ZONAS_MD = null;
+    fetch('ZONAS.md').then(r => r.ok ? r.text() : null).then(t => { if (t) ZONAS_MD = parsearZonasMd(t); }).catch(() => {});
+
+    function parsearZonasMd(t) {
+        const loc = {}, partido = {};
+        let zona = null;
+        for (const linea of t.split('\n')) {
+            const h = linea.match(/^## (.+)$/);
+            if (h) { zona = h[1].startsWith('Fuera') ? 'Fuera' : h[1].trim(); continue; }
+            const fila = linea.match(/^\| ([^|]+) \| ([^|]+) \| ([^|]+) \|$/);
+            if (fila && !/Partido|---/.test(fila[1])) { partido[normTxt(fila[1])] = { base: fila[2].trim(), alcance: fila[3].trim() }; continue; }
+            if (!zona || zona.startsWith('Partido') || !linea.trim() || linea.startsWith('|') || /^(Quedan|Se usa|- )/.test(linea)) continue;
+            linea.replace(/^\*\*[^*]+:\*\*/, '').split(',').forEach(n => { const k = normTxt(n); if (k && !(k in loc)) loc[k] = zona; });
+        }
+        return { loc, partido };
+    }
+
+    function cruceZonasMd(info, zonaCirculo) {
+        if (!ZONAS_MD || !info) return '';
+        const nombreCirculo = zonaCirculo ? (zonaCirculo === ZONAS[0] ? 'CABA' : zonaCirculo.nombre) : 'Fuera';
+        let lista = null, fuente = '';
+        if (info.esCABA) { lista = 'CABA'; fuente = 'CABA'; }
+        else {
+            for (const b of info.barrios) {
+                const z = ZONAS_MD.loc[normTxt(b)] || ZONAS_MD.loc[normTxt(b + ' centro')];
+                if (z) { lista = z; fuente = b; break; }
+            }
+        }
+        if (lista) {
+            return lista === nombreCirculo
+                ? `<div class="ok-zonas">✓ Coincide con ZONAS.md (${esc(fuente)})</div>`
+                : `<div class="aviso-zonas">⚠ ZONAS.md dice <b>${esc(lista)}</b> para ${esc(fuente)}, el mapa dice <b>${esc(nombreCirculo)}</b>. Verificar la direccion antes de cotizar.</div>`;
+        }
+        const p = ZONAS_MD.partido[normTxt(info.partido)];
+        if (p && p.alcance !== 'una sola') return `<div class="aviso-zonas">⚠ ${esc(info.localidad)} no esta en ZONAS.md y el partido ${esc(info.partido)} tiene varias zonas (${esc(p.alcance)}). Confirmar la localidad.</div>`;
+        if (p) return p.base === nombreCirculo ? `<div class="ok-zonas">✓ Coincide con ZONAS.md (partido ${esc(info.partido)})</div>`
+            : `<div class="aviso-zonas">⚠ ZONAS.md ubica el partido ${esc(info.partido)} en <b>${esc(p.base)}</b>, el mapa dice <b>${esc(nombreCirculo)}</b>. Verificar.</div>`;
+        return `<div class="aviso-zonas">⚠ ${esc(info.localidad || 'La localidad')} no esta en ZONAS.md. Consultar con un asesor.</div>`;
+    }
+
+    function ubicarDireccion(lat, lng, display, info) {
+        const resultDiv = document.getElementById('result');
+        display = esc(display);
+        if (searchMarker) map.removeLayer(searchMarker);
+        const resultado = buscarZona(lat, lng);
+        zonaActual = resultado;
+        const { zona, dist, idx, dentroCABA } = resultado;
+        const color = zona ? COLORES[idx] : '#666';
+        const cruce = cruceZonasMd(info, zona);
+
+        searchMarker = L.marker([lat, lng]).addTo(map);
+        map.setView([lat, lng], dentroCABA ? 13 : 11);
+
+        if (zona) {
+            resultDiv.className = 'found';
+            const aumentoText = zona.aumento === 0 ? 'BASE (0%)' : `+${Math.round(zona.aumento * 100)}%`;
+            const distText = dentroCABA ? 'Dentro de CABA' : `${dist.toFixed(1)} km del centro`;
+
+            let preciosHtml = `
+                <div class="result-precios-grid">
+                    <div></div>
+                    <div class="rh">Hasta 1000m2</div>
+                    <div class="rh">1000-3000</div>
+                    <div class="rh">3000-5000</div>
+                    ${SERVICIOS.map(s => `
+                        <div class="sl">${s.label}</div>
+                        <div class="pv" style="color:${color}">${fmt(calcPrecio(s.base, idx, 0))}</div>
+                        <div class="pv" style="color:${color}">${fmt(calcPrecio(s.base, idx, 1))}</div>
+                        <div class="pv" style="color:${color}">${fmt(calcPrecio(s.base, idx, 2))}</div>
+                    `).join('')}
+                </div>
+            `;
+
+            resultDiv.innerHTML = `
+                <div class="result-address">${display}</div>
+                <div class="result-main">
+                    <span class="result-zona-badge" style="background:${color}30;color:${color}">
+                        ${zona.nombre}
+                    </span>
+                    <span class="result-dist">${distText}</span>
+                    <span class="result-aumento">Aumento: ${aumentoText}</span>
+                </div>
+                ${cruce}
+                ${preciosHtml}
+            `;
+            searchMarker.bindPopup(`<b>${display}</b><br>${zona.nombre} - ${distText} - ${aumentoText}`).openPopup();
+            renderTabla(idx);
+        } else {
+            resultDiv.innerHTML = `
+                <div class="result-address">${display}</div>
+                <div style="color:#ef4444;font-weight:700;margin-top:4px">
+                    FUERA DE COBERTURA (${dist.toFixed(1)} km del centro)
+                </div>
+                <div class="derivar-alert">
+                    Derivar a Lucas - Supera los ${ZONAS[ZONAS.length-1].radio} km de cobertura
+                </div>
+                ${cruce}
+            `;
+            searchMarker.bindPopup(`<b>${display}</b><br>FUERA DE COBERTURA`).openPopup();
+            renderTabla(-1);
+        }
+
+        calcularTotal();
+    }
 
     // ================================================================
     // CALCULADORA
@@ -1256,7 +1420,7 @@
         const q = cotizar();
         const { insumos: ins, totalInsumos } = q;
 
-        const addressInput = document.getElementById('address').value.trim();
+        const direccionTexto = document.getElementById('address').value.trim();
 
         const plagaNames = {
             'Pulgas': 'pulgas', 'Garrapatas': 'garrapatas', 'Chinches': 'chinches',
@@ -1270,7 +1434,7 @@
         let msg = `${saludo}Perfecto, te paso la cotizacion para el servicio de ${plagaText}:\n\n`;
 
         msg += `*Servicio:* Control de ${plagaText}\n`;
-        if (addressInput) msg += `*Ubicacion:* ${addressInput}\n`;
+        if (direccionTexto) msg += `*Ubicacion:* ${direccionTexto}\n`;
         msg += `*Superficie:* ${RANGOS[rangoActual]}\n\n`;
 
         // El ajuste de franja y la zona se aplican, no se anuncian (PRECIOS.md)
@@ -1323,7 +1487,7 @@
         document.getElementById('resp-text').value = msg;
         document.getElementById('btn-copiar').disabled = false;
 
-        document.getElementById('ficha-text').value = generarFicha(q, plaga, nombre, addressInput, notas);
+        document.getElementById('ficha-text').value = generarFicha(q, plaga, nombre, direccionTexto, notas);
         document.getElementById('btn-copiar-ficha').disabled = false;
     }
 

@@ -14,6 +14,10 @@ Es un único HTML estático, sin backend ni build. Se puede servir desde GitHub 
 | `herramientas/editor-zonas.html` | Editor/calibrador que regenera `ZONAS.md` y `PRECIOS.md` |
 | `PENDIENTES.md` | Mejoras y tareas abiertas |
 
+## Buscador de direcciones
+
+Mientras se escribe la calle y la altura, aparece una lista de coincidencias con localidad y partido (Photon/OpenStreetMap, con Georef como respaldo). Se elige la correcta y el mapa la ubica. La localidad elegida se cruza con `ZONAS.md` y avisa si no coincide con la zona del mapa. **Para que el cruce funcione, `ZONAS.md` tiene que estar publicado junto a `index.html`.**
+
 ## Cómo funciona la zona
 
 1. **CABA** = polígono de 48 vértices (Gral. Paz, Riachuelo, Río de la Plata) → 0%.
@@ -51,4 +55,4 @@ Coinciden con `PRECIOS.md` (verificado en las 450 líneas de precio).
 
 ## Desplegar
 
-Subir `index.html` a la raíz del hosting. No tiene dependencias locales: Leaflet y los mapas se cargan desde internet, y las direcciones se geocodifican con Nominatim (OpenStreetMap).
+Subir `index.html` y `ZONAS.md` a la raíz del hosting. No tiene dependencias locales: Leaflet y los mapas se cargan desde internet, y las direcciones se geocodifican con Nominatim (OpenStreetMap).
